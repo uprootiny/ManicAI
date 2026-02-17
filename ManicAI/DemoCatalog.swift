@@ -27,11 +27,11 @@ enum DemoCatalog {
             id: "coggy",
             name: "coggy",
             summary: "Multi-role cognitive substrate with role panes and grounding traces.",
-            macSpinup: "./coggy",
-            linuxSpinup: "cd /home/uprootiny/coggy && ./coggy",
-            diagnostics: "curl -s http://127.0.0.1:38421/api/state | jq '{turn, model, pressure}'",
-            smoke: "(project-local smoke/test command)",
-            defaultPrompt: "classify blocker state, recover LLM path, and verify with a minimal end-to-end query"
+            macSpinup: "cd ~/coggy && ./coggy start",
+            linuxSpinup: "cd /home/uprootiny/coggy && ./coggy start",
+            diagnostics: "cd /home/uprootiny/coggy && ./coggy doctor --json && curl -s http://127.0.0.1:8421/api/openrouter/status | jq",
+            smoke: "cd /home/uprootiny/coggy && ./coggy smoke",
+            defaultPrompt: "run smoke checks, fix first blocker, rerun smoke, report concise status"
         ),
         DemoProject(
             id: "hyperpanel",
@@ -85,6 +85,6 @@ enum DemoCatalog {
         )
     ]
 
-    static let freeModelCatalogHint = "curl -s https://openrouter.ai/api/v1/models -H 'Authorization: Bearer $OPENROUTER_API_KEY' | jq '[.data[] | select(.id|test(\":free$\")) | .id]'"
-    static let providerDiagnosticsHint = "curl -s https://openrouter.ai/api/v1/models -H 'Authorization: Bearer $OPENROUTER_API_KEY' | jq '{count:(.data|length)}'"
+    static let freeModelCatalogHint = "./scripts/playtests/openrouter_free_catalog.py --out-dir ."
+    static let providerDiagnosticsHint = "cd /home/uprootiny/coggy && ./coggy doctor --json && curl -s http://127.0.0.1:8421/api/openrouter/models | jq"
 }

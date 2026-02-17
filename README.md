@@ -8,6 +8,10 @@ A styled macOS operator app for agent-heavy development environments.
 - Displays takeover candidates, pane grid, and smoke/vibe status
 - Triggers autopilot (`/api/autopilot/run`) from a terminal-style control card
 - Keeps the UI legible while many agent sessions are active
+- Supports remote endpoint presets (`173`, `149`, `hyle.hyperstitious.org`) and recon scan auto-selection
+- Sends autopilot requests with project context to avoid no-op engagement
+- Adds cadence profiles (`Stabilize`, `Throughput`, `Deep Work`) with throttled commutation controls
+- Supports scripted nudges (multi-step prompt sequence with per-step pause)
 
 ## Run locally (macOS)
 

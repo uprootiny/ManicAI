@@ -11,9 +11,77 @@ struct DashboardView: View {
         var id: String { rawValue }
     }
 
+    enum CadenceProfile: String, CaseIterable, Identifiable {
+        case stabilize = "Stabilize"
+        case throughput = "Throughput"
+        case deepwork = "Deep Work"
+        var id: String { rawValue }
+
+        var refreshSec: Double {
+            switch self {
+            case .stabilize: return 8
+            case .throughput: return 4
+            case .deepwork: return 14
+            }
+        }
+        var cooldownSec: Double {
+            switch self {
+            case .stabilize: return 14
+            case .throughput: return 6
+            case .deepwork: return 24
+            }
+        }
+        var actionDelayMs: Double {
+            switch self {
+            case .stabilize: return 1500
+            case .throughput: return 700
+            case .deepwork: return 2200
+            }
+        }
+        var fanout: Int {
+            switch self {
+            case .stabilize: return 1
+            case .throughput: return 3
+            case .deepwork: return 1
+            }
+        }
+        var script: String {
+            switch self {
+            case .stabilize:
+                return """
+                classify blockers only, no writes, suggest minimal next action
+                run smoke checks, fix first blocker, rerun smoke, report concise status
+                summarize delta and stop unless blocker count decreased
+                """
+            case .throughput:
+                return """
+                run smoke checks, fix first blocker, rerun smoke, report concise status
+                move to next ready target and repeat guarded cycle
+                emit compact status board with done/blocked items
+                """
+            case .deepwork:
+                return """
+                isolate one primary session and freeze all noisy loops
+                run smoke checks, fix first blocker, rerun smoke, report concise status
+                produce one commit-ready patch plan with acceptance criteria
+                """
+            }
+        }
+    }
+
     @StateObject private var client = PanelClient()
     @State private var autopilotPrompt = "run smoke checks, fix first blocker, rerun smoke, report concise status"
     @State private var opsMode: OpsMode = .verify
+    @State private var endpointInput = ""
+    @State private var selectedPreset = "http://173.212.203.211:8788"
+    @State private var selectedProject = ""
+    @State private var watchEnabled = true
+    @State private var refreshCadenceSec: Double = 7
+    @State private var useCommutation = true
+    @State private var watchTask: Task<Void, Never>?
+    @State private var cadenceProfile: CadenceProfile = .stabilize
+    @State private var scriptedNudges = ""
+    @State private var scriptPauseSec: Double = 12
 
     var body: some View {
         VStack(spacing: 12) {
@@ -30,7 +98,16 @@ struct DashboardView: View {
             RadialGradient(colors: [Color(red: 0.07, green: 0.14, blue: 0.27), Color(red: 0.02, green: 0.03, blue: 0.06)], center: .topLeading, startRadius: 60, endRadius: 1100)
                 .ignoresSafeArea()
         )
-        .task { await client.refresh() }
+        .task {
+            endpointInput = client.baseURL.absoluteString
+            await client.refresh()
+            if selectedProject.isEmpty {
+                selectedProject = client.state?.projects.first?.path ?? ""
+            }
+            scriptedNudges = cadenceProfile.script
+            startWatchLoopIfNeeded()
+        }
+        .onDisappear { watchTask?.cancel() }
     }
 
     private var header: some View {
@@ -52,6 +129,32 @@ struct DashboardView: View {
     private var leftColumn: some View {
         VStack(spacing: 12) {
             GlassCard(title: "Access") {
+                HStack {
+                    TextField("Endpoint URL", text: $endpointInput)
+                        .textFieldStyle(.roundedBorder)
+                    Button("Use") {
+                        client.setBaseURL(endpointInput)
+                        Task { await client.refresh() }
+                    }
+                    .buttonStyle(.bordered)
+                }
+
+                Picker("Preset", selection: $selectedPreset) {
+                    ForEach(client.endpointPresets, id: \.self) { preset in
+                        Text(preset).tag(preset)
+                    }
+                }
+                .onChange(of: selectedPreset) { newValue in
+                    endpointInput = newValue
+                    client.choosePreset(newValue)
+                    Task { await client.refresh() }
+                }
+
+                Button("Recon Scan + Auto Select") {
+                    Task { await client.probeAndSelectBestEndpoint() }
+                }
+                .buttonStyle(.borderedProminent)
+
                 Picker("Mode", selection: $opsMode) {
                     ForEach(OpsMode.allCases) { mode in
                         Text(mode.rawValue).tag(mode)
@@ -69,6 +172,10 @@ struct DashboardView: View {
                     LabeledContent("Panes", value: "\(s.panes.count)")
                     LabeledContent("Candidates", value: "\(s.takeoverCandidates.count)")
                     LabeledContent("Smoke", value: s.smoke.status)
+                    LabeledContent("Queue", value: "\(s.queue.count)")
+                }
+                if let action = client.lastAction {
+                    Text(action).font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
                 }
                 if let error = client.error {
                     Text(error).foregroundStyle(.red)
@@ -82,6 +189,9 @@ struct DashboardView: View {
                     .scrollContentBackground(.hidden)
                     .background(Color.black.opacity(0.18))
                     .clipShape(RoundedRectangle(cornerRadius: 8))
+                TextField("Project path for autopilot", text: $selectedProject)
+                    .textFieldStyle(.roundedBorder)
+                Toggle("Use commutation (round-robin + delay)", isOn: $useCommutation)
                 Button("Run takeover + smoke") {
                     Task {
                         switch opsMode {
@@ -91,11 +201,103 @@ struct DashboardView: View {
                             await client.runAutopilot(
                                 prompt: "diagnose blockers only, no writes, suggest minimal next action",
                                 maxTargets: 1,
-                                autoApprove: false
+                                autoApprove: false,
+                                project: selectedProject.isEmpty ? nil : selectedProject
                             )
                         case .act:
-                            await client.runAutopilot(prompt: autopilotPrompt, maxTargets: 2, autoApprove: true)
+                            if useCommutation {
+                                await client.runCommutedAutopilot(
+                                    prompt: autopilotPrompt,
+                                    project: selectedProject.isEmpty ? nil : selectedProject,
+                                    autoApprove: true
+                                )
+                            } else {
+                                await client.runAutopilot(
+                                    prompt: autopilotPrompt,
+                                    maxTargets: max(1, client.fanoutPerCycle),
+                                    autoApprove: true,
+                                    project: selectedProject.isEmpty ? nil : selectedProject
+                                )
+                            }
                         }
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+            }
+            GlassCard(title: "Commutation + Throttle") {
+                Picker("Cadence", selection: $cadenceProfile) {
+                    ForEach(CadenceProfile.allCases) { profile in
+                        Text(profile.rawValue).tag(profile)
+                    }
+                }
+                .onChange(of: cadenceProfile) { profile in
+                    refreshCadenceSec = profile.refreshSec
+                    client.autopilotCooldownSec = profile.cooldownSec
+                    client.actionDelayMs = profile.actionDelayMs
+                    client.fanoutPerCycle = profile.fanout
+                    scriptedNudges = profile.script
+                    startWatchLoopIfNeeded()
+                }
+                Toggle("Background watch refresh", isOn: $watchEnabled)
+                    .onChange(of: watchEnabled) { _ in startWatchLoopIfNeeded() }
+                HStack {
+                    Text("Refresh cadence")
+                    Spacer()
+                    Text("\(Int(refreshCadenceSec))s")
+                }
+                Slider(value: $refreshCadenceSec, in: 2...30, step: 1)
+                    .onChange(of: refreshCadenceSec) { _ in startWatchLoopIfNeeded() }
+
+                HStack {
+                    Text("Autopilot cooldown")
+                    Spacer()
+                    Text("\(Int(client.autopilotCooldownSec))s")
+                }
+                Slider(value: $client.autopilotCooldownSec, in: 3...60, step: 1)
+
+                HStack {
+                    Text("Inter-action delay")
+                    Spacer()
+                    Text("\(Int(client.actionDelayMs))ms")
+                }
+                Slider(value: $client.actionDelayMs, in: 200...5000, step: 100)
+
+                HStack {
+                    Text("Fanout per cycle")
+                    Spacer()
+                    Stepper("\(client.fanoutPerCycle)", value: $client.fanoutPerCycle, in: 1...8)
+                        .labelsHidden()
+                }
+
+                Text("Scripted nudges (one step per line)")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                TextEditor(text: $scriptedNudges)
+                    .font(.system(size: 11, design: .monospaced))
+                    .frame(height: 90)
+                    .scrollContentBackground(.hidden)
+                    .background(Color.black.opacity(0.18))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                HStack {
+                    Text("Step pause")
+                    Spacer()
+                    Text("\(Int(scriptPauseSec))s")
+                }
+                Slider(value: $scriptPauseSec, in: 4...60, step: 1)
+
+                Button("Run scripted nudges") {
+                    let sequence = scriptedNudges
+                        .split(separator: "\n")
+                        .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+                        .filter { !$0.isEmpty }
+                    Task {
+                        await client.runScriptedNudges(
+                            sequence: sequence,
+                            project: selectedProject.isEmpty ? nil : selectedProject,
+                            autoApprove: opsMode == .act,
+                            pauseSec: scriptPauseSec
+                        )
                     }
                 }
                 .buttonStyle(.borderedProminent)
@@ -203,6 +405,29 @@ struct DashboardView: View {
                     }
                 }
             }
+            GlassCard(title: "Surface Recon") {
+                ScrollView {
+                    LazyVStack(spacing: 8) {
+                        ForEach(client.probes) { probe in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(probe.baseURL.absoluteString)
+                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                Text("state=\(probe.stateReachable ? "ok" : "fail") health=\(probe.healthy ? "ok" : "fail") sessions=\(probe.sessions) candidates=\(probe.candidates) smoke=\(probe.smokeStatus)")
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                                if let e = probe.error {
+                                    Text(e)
+                                        .font(.system(size: 10, design: .monospaced))
+                                        .foregroundStyle(.red)
+                                }
+                            }
+                            .padding(8)
+                            .background(Color.black.opacity(0.2))
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                        }
+                    }
+                }
+            }
         }
         .frame(maxWidth: 360)
     }
@@ -229,6 +454,18 @@ struct DashboardView: View {
         pb.clearContents()
         pb.setString(text, forType: .string)
         #endif
+    }
+
+    private func startWatchLoopIfNeeded() {
+        watchTask?.cancel()
+        guard watchEnabled else { return }
+        watchTask = Task {
+            while !Task.isCancelled {
+                await client.refresh()
+                let ns = UInt64(max(2, Int(refreshCadenceSec)) * 1_000_000_000)
+                try? await Task.sleep(nanoseconds: ns)
+            }
+        }
     }
 }
 
