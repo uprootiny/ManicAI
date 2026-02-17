@@ -139,12 +139,7 @@ jobs:
           KEYCHAIN_PASSWORD="${APPLE_KEYCHAIN_PASSWORD:-temp-keychain-password}"
           export CERT_P12
 
-          python3 - <<'PY'
-import base64, os
-data = os.environ["APPLE_DEVELOPER_ID_APP_CERT_BASE64"].encode("utf-8")
-with open(os.environ["CERT_P12"], "wb") as f:
-    f.write(base64.b64decode(data))
-PY
+          python3 -c 'import base64,os;open(os.environ["CERT_P12"],"wb").write(base64.b64decode(os.environ["APPLE_DEVELOPER_ID_APP_CERT_BASE64"]))'
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
@@ -192,12 +187,7 @@ PY
           SIGNED_DMG="ManicAI-${{ matrix.target.artifact_suffix }}-notarize.dmg"
           KEY_FILE="$RUNNER_TEMP/AuthKey_${APPLE_NOTARY_KEY_ID}.p8"
           export KEY_FILE
-          python3 - <<'PY'
-import base64, os
-data = os.environ["APPLE_NOTARY_API_KEY_BASE64"].encode("utf-8")
-with open(os.environ["KEY_FILE"], "wb") as f:
-    f.write(base64.b64decode(data))
-PY
+          python3 -c 'import base64,os;open(os.environ["KEY_FILE"],"wb").write(base64.b64decode(os.environ["APPLE_NOTARY_API_KEY_BASE64"]))'
 
           xcrun notarytool submit "$SIGNED_DMG" \
             --key "$KEY_FILE" \
