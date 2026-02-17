@@ -62,8 +62,11 @@ jobs:
 
       - name: Install XcodeGen
         run: |
-          brew update
-          brew install xcodegen
+          if command -v xcodegen >/dev/null 2>&1; then
+            xcodegen --version
+          else
+            brew install xcodegen
+          fi
 
       - name: Legacy deployment compatibility
         if: matrix.target.legacy_compat == true
