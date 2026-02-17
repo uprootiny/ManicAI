@@ -67,5 +67,8 @@ targets:
     platform: macOS
     sources:
       - path: ManicAITests
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
     dependencies:
       - target: ManicAI
