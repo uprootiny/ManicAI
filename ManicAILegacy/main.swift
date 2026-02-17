@@ -9,7 +9,7 @@ final class LegacyController: NSObject {
     ]
 
     let window: NSWindow
-    private let queueField = NSTextField(string: "")
+    private let queueField = NSTextField(frame: .zero)
     private let queueView = NSTextView(frame: .zero)
     private let centerView = NSTextView(frame: .zero)
     private let rightView = NSTextView(frame: .zero)
@@ -35,16 +35,16 @@ final class LegacyController: NSObject {
         root.autoresizingMask = [.width, .height]
         window.contentView = root
 
-        let header = NSTextField(labelWithString: "H Y P E R  P R O D U C T I V I T Y  P A N E L")
-        header.font = NSFont.boldSystemFont(ofSize: 15)
+        let header = makeLabel("H Y P E R  P R O D U C T I V I T Y  P A N E L")
+        header.font = monoFont(size: 15, bold: true)
         header.textColor = NSColor(calibratedRed: 0.54, green: 0.89, blue: 0.98, alpha: 1.0)
         header.frame = NSRect(x: 20, y: root.bounds.height - 42, width: 620, height: 20)
         header.autoresizingMask = [.maxXMargin, .minYMargin]
         root.addSubview(header)
 
-        let status = NSTextField(labelWithString: "pipeline: available | build: warming | dev: aligned")
-        status.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
-        status.textColor = NSColor.secondaryLabelColor
+        let status = makeLabel("pipeline: available | build: warming | dev: aligned")
+        status.font = monoFont(size: 11, bold: false)
+        status.textColor = NSColor(calibratedWhite: 0.72, alpha: 1.0)
         status.frame = NSRect(x: root.bounds.width - 430, y: root.bounds.height - 42, width: 410, height: 20)
         status.alignment = .right
         status.autoresizingMask = [.minXMargin, .minYMargin]
@@ -66,25 +66,31 @@ final class LegacyController: NSObject {
     private func makeLeftPane() -> NSView {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 330, height: 300))
 
-        let queueTitle = NSTextField(labelWithString: "AGENT PROMPT QUEUE")
-        queueTitle.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .semibold)
+        let queueTitle = makeLabel("AGENT PROMPT QUEUE")
+        queueTitle.font = monoFont(size: 12, bold: true)
         queueTitle.frame = NSRect(x: 8, y: container.bounds.height - 28, width: 240, height: 16)
         queueTitle.autoresizingMask = [.maxXMargin, .minYMargin]
         container.addSubview(queueTitle)
 
         queueField.placeholderString = "Enqueue prompt"
-        queueField.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+        queueField.font = monoFont(size: 12, bold: false)
         queueField.frame = NSRect(x: 8, y: container.bounds.height - 56, width: 230, height: 24)
         queueField.autoresizingMask = [.width, .minYMargin]
         container.addSubview(queueField)
 
-        let enqueue = NSButton(title: "Enqueue", target: self, action: #selector(onEnqueue))
+        let enqueue = NSButton(frame: NSRect(x: 246, y: container.bounds.height - 56, width: 76, height: 24))
+        enqueue.title = "Enqueue"
+        enqueue.target = self
+        enqueue.action = #selector(onEnqueue)
         enqueue.frame = NSRect(x: 246, y: container.bounds.height - 56, width: 76, height: 24)
         enqueue.bezelStyle = .rounded
         enqueue.autoresizingMask = [.minXMargin, .minYMargin]
         container.addSubview(enqueue)
 
-        let runNext = NSButton(title: "Run Next", target: self, action: #selector(onRunNext))
+        let runNext = NSButton(frame: NSRect(x: 8, y: container.bounds.height - 86, width: 96, height: 24))
+        runNext.title = "Run Next"
+        runNext.target = self
+        runNext.action = #selector(onRunNext)
         runNext.frame = NSRect(x: 8, y: container.bounds.height - 86, width: 96, height: 24)
         runNext.bezelStyle = .rounded
         runNext.autoresizingMask = [.maxXMargin, .minYMargin]
@@ -93,7 +99,7 @@ final class LegacyController: NSObject {
         let queueScroll = NSScrollView(frame: NSRect(x: 8, y: 8, width: 314, height: container.bounds.height - 100))
         queueScroll.autoresizingMask = [.width, .height]
         queueView.isEditable = false
-        queueView.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        queueView.font = monoFont(size: 11, bold: false)
         queueView.backgroundColor = NSColor(calibratedWhite: 0.07, alpha: 1.0)
         queueView.textColor = NSColor(calibratedWhite: 0.93, alpha: 1.0)
         queueScroll.documentView = queueView
@@ -106,8 +112,8 @@ final class LegacyController: NSObject {
     private func makeScrollPane(textView: NSTextView, title: String) -> NSView {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 420, height: 300))
 
-        let caption = NSTextField(labelWithString: title)
-        caption.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .semibold)
+        let caption = makeLabel(title)
+        caption.font = monoFont(size: 12, bold: true)
         caption.frame = NSRect(x: 8, y: container.bounds.height - 28, width: 360, height: 16)
         caption.autoresizingMask = [.maxXMargin, .minYMargin]
         container.addSubview(caption)
@@ -115,7 +121,7 @@ final class LegacyController: NSObject {
         let scroll = NSScrollView(frame: NSRect(x: 8, y: 8, width: container.bounds.width - 16, height: container.bounds.height - 40))
         scroll.autoresizingMask = [.width, .height]
         textView.isEditable = false
-        textView.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        textView.font = monoFont(size: 11, bold: false)
         textView.backgroundColor = NSColor(calibratedWhite: 0.06, alpha: 1.0)
         textView.textColor = NSColor(calibratedWhite: 0.90, alpha: 1.0)
         scroll.documentView = textView
@@ -174,6 +180,22 @@ final class LegacyController: NSObject {
     private func append(textView: NSTextView, line: String) {
         textView.string += line + "\n"
         textView.scrollToEndOfDocument(nil)
+    }
+
+    private func makeLabel(_ text: String) -> NSTextField {
+        let label = NSTextField(frame: .zero)
+        label.stringValue = text
+        label.isEditable = false
+        label.isSelectable = false
+        label.isBezeled = false
+        label.drawsBackground = false
+        label.lineBreakMode = .byTruncatingTail
+        return label
+    }
+
+    private func monoFont(size: CGFloat, bold: Bool) -> NSFont {
+        let name = bold ? "Menlo-Bold" : "Menlo-Regular"
+        return NSFont(name: name, size: size) ?? NSFont.systemFont(ofSize: size)
     }
 }
 
