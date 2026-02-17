@@ -82,6 +82,9 @@ struct DashboardView: View {
     @State private var cadenceProfile: CadenceProfile = .stabilize
     @State private var scriptedNudges = ""
     @State private var scriptPauseSec: Double = 12
+    @State private var scopeObjective = ""
+    @State private var scopeDone = ""
+    @State private var scopeIntent = ""
 
     var body: some View {
         VStack(spacing: 12) {
@@ -105,6 +108,9 @@ struct DashboardView: View {
                 selectedProject = client.state?.projects.first?.path ?? ""
             }
             scriptedNudges = cadenceProfile.script
+            scopeObjective = client.scope.objective
+            scopeDone = client.scope.doneCriteria
+            scopeIntent = client.scope.intentLatch
             startWatchLoopIfNeeded()
         }
         .onDisappear { watchTask?.cancel() }
@@ -119,6 +125,12 @@ struct DashboardView: View {
             Text(statusLine)
                 .font(.system(size: 12, weight: .regular, design: .monospaced))
                 .foregroundStyle(.gray)
+            Text("health \(client.interactionHealth.score) \(client.interactionHealth.label)")
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(client.interactionHealth.score >= 80 ? .green : (client.interactionHealth.score >= 60 ? .yellow : .red))
+            Text("agitation \(client.agitationScore)")
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(client.agitationScore < 35 ? .green : (client.agitationScore < 65 ? .yellow : .red))
             Button("Refresh") {
                 Task { await client.refresh() }
             }
@@ -224,6 +236,83 @@ struct DashboardView: View {
                 }
                 .buttonStyle(.borderedProminent)
             }
+            GlassCard(title: "Scope Contract") {
+                TextField("Objective", text: $scopeObjective)
+                    .textFieldStyle(.roundedBorder)
+                TextField("Done criteria", text: $scopeDone)
+                    .textFieldStyle(.roundedBorder)
+                TextField("Intent latch (single interaction intent)", text: $scopeIntent)
+                    .textFieldStyle(.roundedBorder)
+
+                HStack {
+                    Text("Max cycles")
+                    Spacer()
+                    Stepper("\(client.scope.maxCycles)", value: $client.scope.maxCycles, in: 1...12)
+                        .labelsHidden()
+                }
+                HStack {
+                    Text("Attention budget")
+                    Spacer()
+                    Stepper("\(client.scope.attentionBudgetActions)", value: $client.scope.attentionBudgetActions, in: 1...20)
+                        .labelsHidden()
+                }
+                Toggle("Require intent latch", isOn: $client.scope.requireIntentLatch)
+                Toggle("Require smoke pass to stop", isOn: $client.scope.requireSmokePassToStop)
+                Toggle("Freeze on drift", isOn: $client.scope.freezeOnDrift)
+
+                HStack {
+                    Button("Apply Contract") {
+                        client.scope.objective = scopeObjective
+                        client.scope.doneCriteria = scopeDone
+                        client.scope.intentLatch = scopeIntent
+                        client.lastAction = "Scope contract updated"
+                    }
+                    .buttonStyle(.bordered)
+                    Button(client.intentLatched ? "Relatch Intent" : "Latch Intent") {
+                        client.latchIntent(scopeIntent)
+                    }
+                    .buttonStyle(.bordered)
+                    Button("Clear Latch") {
+                        client.clearIntentLatch()
+                    }
+                    .buttonStyle(.bordered)
+                    Button("Healthy Cycle") {
+                        Task {
+                            await client.runHealthyCycle(
+                                prompt: autopilotPrompt,
+                                project: selectedProject.isEmpty ? nil : selectedProject,
+                                autoApprove: opsMode == .act
+                            )
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+
+                HStack {
+                    Text("Cycles used: \(client.completedCycles)/\(client.scope.maxCycles)")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text("actions \(client.actionsInCurrentScope)/\(client.scope.attentionBudgetActions)")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Reset Ledger") {
+                        client.resetCycleLedger()
+                    }
+                    .buttonStyle(.bordered)
+                }
+
+                Text("intent checksum: \(client.latchedIntentChecksum.isEmpty ? "-" : client.latchedIntentChecksum) | latched: \(client.intentLatched ? "yes" : "no")")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(client.intentLatched ? .green : .yellow)
+
+                if !client.interactionHealth.notes.isEmpty {
+                    Text(client.interactionHealth.notes.joined(separator: " "))
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+            }
             GlassCard(title: "Commutation + Throttle") {
                 Picker("Cadence", selection: $cadenceProfile) {
                     ForEach(CadenceProfile.allCases) { profile in
@@ -307,28 +396,55 @@ struct DashboardView: View {
     }
 
     private var centerColumn: some View {
-        GlassCard(title: "Takeover Targets") {
-            ScrollView {
-                VStack(spacing: 8) {
-                    ForEach(client.state?.takeoverCandidates ?? []) { pane in
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(pane.target)
-                                .font(.system(size: 12, weight: .bold, design: .monospaced))
-                                .foregroundStyle(.green)
-                            Text("\(pane.command) | \(pane.liveness) | idle=\(pane.idleSec)s | thr=\(Int(pane.throughputBps)) B/s")
-                                .font(.system(size: 11, design: .monospaced))
-                                .foregroundStyle(.secondary)
-                            Text(pane.capture.split(separator: "\n").suffix(4).joined(separator: "\n"))
-                                .font(.system(size: 11, design: .monospaced))
-                                .foregroundStyle(.white.opacity(0.85))
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(8)
-                                .background(Color.black.opacity(0.24))
-                                .clipShape(RoundedRectangle(cornerRadius: 8))
+        VStack(spacing: 12) {
+            GlassCard(title: "Takeover Targets") {
+                ScrollView {
+                    VStack(spacing: 8) {
+                        ForEach(client.state?.takeoverCandidates ?? []) { pane in
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(pane.target)
+                                    .font(.system(size: 12, weight: .bold, design: .monospaced))
+                                    .foregroundStyle(.green)
+                                Text("\(pane.command) | \(pane.liveness) | idle=\(pane.idleSec)s | thr=\(Int(pane.throughputBps)) B/s")
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                                Text(pane.capture.split(separator: "\n").suffix(4).joined(separator: "\n"))
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundStyle(.white.opacity(0.85))
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(8)
+                                    .background(Color.black.opacity(0.24))
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                            }
+                            .padding(10)
+                            .background(Color.white.opacity(0.03))
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
                         }
-                        .padding(10)
-                        .background(Color.white.opacity(0.03))
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
+                }
+            }
+            GlassCard(title: "Cycle Journal") {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 6) {
+                        Text("delta: \(client.lastDelta)")
+                            .font(.system(size: 10, design: .monospaced))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(6)
+                            .background(Color.black.opacity(0.2))
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                        ForEach(Array(client.cycleJournal.prefix(20).enumerated()), id: \.offset) { _, line in
+                            Text(line)
+                                .font(.system(size: 10, design: .monospaced))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(6)
+                                .background(Color.black.opacity(0.2))
+                                .clipShape(RoundedRectangle(cornerRadius: 6))
+                        }
+                        if client.cycleJournal.isEmpty {
+                            Text("(no cycle events)")
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
             }

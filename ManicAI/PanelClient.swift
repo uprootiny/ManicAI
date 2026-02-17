@@ -9,7 +9,19 @@ final class PanelClient: ObservableObject {
     @Published var autopilotCooldownSec: Double = 8
     @Published var actionDelayMs: Double = 1200
     @Published var fanoutPerCycle: Int = 2
+    @Published var scope = ScopeContract()
+    @Published var completedCycles: Int = 0
+    @Published var interactionHealth = InteractionHealth(score: 50, label: "Unrated", notes: ["Run refresh to compute health"])
+    @Published var cycleJournal: [String] = []
+    @Published var intentLatched: Bool = false
+    @Published var latchedIntentChecksum: String = ""
+    @Published var actionsInCurrentScope: Int = 0
+    @Published var agitationScore: Int = 0
+    @Published var lastDelta: String = ""
     private var lastAutopilotAt: Date?
+    private var consecutiveErrors: Int = 0
+    private var previousCandidateCount: Int = 0
+    private var previousSmokeStatus: String = "unknown"
 
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
@@ -55,8 +67,12 @@ final class PanelClient: ObservableObject {
             try assertHTTP(response)
             state = try decoder.decode(PanelState.self, from: data)
             error = nil
+            consecutiveErrors = 0
             lastAction = "Refreshed \(baseURL.host ?? "unknown")"
+            computeDelta()
+            recomputeInteractionHealth()
         } catch {
+            consecutiveErrors += 1
             self.error = "Refresh failed: \(error.localizedDescription)"
         }
     }
@@ -65,11 +81,23 @@ final class PanelClient: ObservableObject {
         UserDefaults.standard.set(autopilotCooldownSec, forKey: "manicai.autopilotCooldownSec")
         UserDefaults.standard.set(actionDelayMs, forKey: "manicai.actionDelayMs")
         UserDefaults.standard.set(fanoutPerCycle, forKey: "manicai.fanoutPerCycle")
+        if scope.requireIntentLatch {
+            let checksum = checksumForIntent(scope.intentLatch)
+            if !intentLatched || checksum.isEmpty || checksum != latchedIntentChecksum {
+                self.error = "Intent not latched. Update latch before action."
+                return
+            }
+        }
+        if actionsInCurrentScope >= max(1, scope.attentionBudgetActions) {
+            self.error = "Attention budget exceeded (\(scope.attentionBudgetActions) actions). Re-anchor intent."
+            return
+        }
         if let last = lastAutopilotAt {
             let gap = Date().timeIntervalSince(last)
             if gap < autopilotCooldownSec {
                 let remain = Int((autopilotCooldownSec - gap).rounded(.up))
                 self.error = "Autopilot throttled: wait \(remain)s"
+                consecutiveErrors += 1
                 return
             }
         }
@@ -84,9 +112,11 @@ final class PanelClient: ObservableObject {
             try assertHTTP(response)
             let payload = String(data: data, encoding: .utf8) ?? ""
             lastAutopilotAt = Date()
+            actionsInCurrentScope += 1
             lastAction = "Autopilot OK (\(selectedProject ?? "no-project")) \(payload.prefix(180))"
             await refresh()
         } catch {
+            consecutiveErrors += 1
             self.error = "Autopilot failed: \(error.localizedDescription)"
         }
     }
@@ -123,6 +153,81 @@ final class PanelClient: ObservableObject {
             }
         }
         lastAction = "Scripted nudges complete (\(steps.count) steps)"
+    }
+
+    func runSmoke(project: String?) async -> String {
+        let selectedProject = project ?? state?.projects.first?.path
+        guard let selectedProject else {
+            error = "Smoke skipped: no project selected"
+            return "missing-project"
+        }
+        do {
+            let url = pathURL("api/smoke")
+            var req = URLRequest(url: url)
+            req.httpMethod = "POST"
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            let body = ["project": selectedProject]
+            req.httpBody = try JSONSerialization.data(withJSONObject: body)
+            let (data, response) = try await session.data(for: req)
+            try assertHTTP(response)
+            let text = String(data: data, encoding: .utf8) ?? ""
+            lastAction = "Smoke executed for \(selectedProject)"
+            cycleJournal.insert("smoke[\(selectedProject)]: \(text.prefix(160))", at: 0)
+            actionsInCurrentScope += 1
+            await refresh()
+            return text
+        } catch {
+            consecutiveErrors += 1
+            self.error = "Smoke failed: \(error.localizedDescription)"
+            cycleJournal.insert("smoke-failed[\(selectedProject)]: \(error.localizedDescription)", at: 0)
+            return "error"
+        }
+    }
+
+    func runHealthyCycle(prompt: String, project: String?, autoApprove: Bool) async {
+        guard completedCycles < max(1, scope.maxCycles) else {
+            error = "Scope limit reached: max cycles \(scope.maxCycles)"
+            return
+        }
+        let selectedProject = project ?? state?.projects.first?.path
+        if scope.freezeOnDrift, (state?.queue.count ?? 0) > 6 {
+            error = "Frozen by scope policy: queue depth too high"
+            cycleJournal.insert("freeze: queue depth exceeded threshold", at: 0)
+            return
+        }
+
+        cycleJournal.insert("cycle \(completedCycles + 1) start: \(scope.objective)", at: 0)
+        await runCommutedAutopilot(prompt: prompt, project: selectedProject, autoApprove: autoApprove)
+        let ns = UInt64(max(0, actionDelayMs) * 1_000_000)
+        try? await Task.sleep(nanoseconds: ns)
+        let smokeText = await runSmoke(project: selectedProject)
+        completedCycles += 1
+        cycleJournal.insert("cycle \(completedCycles) outcome: \(smokeText.prefix(120))", at: 0)
+        recomputeInteractionHealth()
+    }
+
+    func resetCycleLedger() {
+        completedCycles = 0
+        cycleJournal.removeAll()
+        actionsInCurrentScope = 0
+        intentLatched = false
+        latchedIntentChecksum = ""
+        lastAction = "Cycle ledger reset"
+    }
+
+    func latchIntent(_ text: String) {
+        scope.intentLatch = text
+        latchedIntentChecksum = checksumForIntent(text)
+        intentLatched = !latchedIntentChecksum.isEmpty
+        actionsInCurrentScope = 0
+        lastAction = intentLatched ? "Intent latched (\(latchedIntentChecksum))" : "Intent latch failed"
+    }
+
+    func clearIntentLatch() {
+        intentLatched = false
+        latchedIntentChecksum = ""
+        actionsInCurrentScope = 0
+        lastAction = "Intent latch cleared"
     }
 
     func setBaseURL(_ text: String) {
@@ -236,5 +341,96 @@ final class PanelClient: ObservableObject {
         guard (200..<300).contains(http.statusCode) else {
             throw URLError(.badServerResponse)
         }
+    }
+
+    private func recomputeInteractionHealth() {
+        guard let s = state else {
+            interactionHealth = InteractionHealth(score: 20, label: "Disconnected", notes: ["No live state"])
+            agitationScore = 80
+            return
+        }
+        var score = 100
+        var notes: [String] = []
+        var agitation = 0
+
+        if s.takeoverCandidates.isEmpty {
+            score -= 20
+            notes.append("No takeover candidates visible.")
+            agitation += 15
+        } else {
+            notes.append("Candidates visible: \(s.takeoverCandidates.count).")
+        }
+
+        if s.smoke.status.lowercased() != "pass" {
+            score -= 25
+            notes.append("Smoke status not pass: \(s.smoke.status).")
+            agitation += 20
+        } else {
+            notes.append("Smoke status pass.")
+        }
+
+        if s.queue.count > 6 {
+            score -= 15
+            notes.append("Queue depth high (\(s.queue.count)); risk of drift.")
+            agitation += 20
+        }
+
+        if completedCycles >= max(1, scope.maxCycles) {
+            score -= 10
+            notes.append("Reached cycle limit; require human review.")
+            agitation += 10
+        }
+
+        if scope.requireIntentLatch && !intentLatched {
+            score -= 10
+            notes.append("Intent latch missing.")
+            agitation += 15
+        }
+
+        if actionsInCurrentScope > scope.attentionBudgetActions {
+            score -= 15
+            notes.append("Attention budget exceeded.")
+            agitation += 20
+        }
+
+        if consecutiveErrors > 0 {
+            score -= min(15, consecutiveErrors * 3)
+            notes.append("Recent errors: \(consecutiveErrors).")
+            agitation += min(20, consecutiveErrors * 4)
+        }
+
+        let label: String
+        switch score {
+        case 85...100: label = "Healthy"
+        case 65..<85: label = "Watchful"
+        case 45..<65: label = "Strained"
+        default: label = "Unhealthy"
+        }
+        agitationScore = min(100, max(0, agitation))
+        interactionHealth = InteractionHealth(score: max(0, score), label: label, notes: notes)
+    }
+
+    private func checksumForIntent(_ text: String) -> String {
+        let normalized = text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return "" }
+        let scalar = normalized.unicodeScalars.reduce(0) { ($0 * 131 + Int($1.value)) % 1000003 }
+        return String(format: "%06d", scalar % 1000000)
+    }
+
+    private func computeDelta() {
+        guard let s = state else { return }
+        let candidateDelta = s.takeoverCandidates.count - previousCandidateCount
+        let smokeChanged = previousSmokeStatus != s.smoke.status
+        var segments: [String] = []
+        segments.append("candidates \(previousCandidateCount)->\(s.takeoverCandidates.count) (\(candidateDelta >= 0 ? "+" : "")\(candidateDelta))")
+        if smokeChanged {
+            segments.append("smoke \(previousSmokeStatus)->\(s.smoke.status)")
+        } else {
+            segments.append("smoke \(s.smoke.status) (unchanged)")
+        }
+        segments.append("queue \(s.queue.count)")
+        lastDelta = segments.joined(separator: " | ")
+        previousCandidateCount = s.takeoverCandidates.count
+        previousSmokeStatus = s.smoke.status
     }
 }

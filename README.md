@@ -12,6 +12,7 @@ A styled macOS operator app for agent-heavy development environments.
 - Sends autopilot requests with project context to avoid no-op engagement
 - Adds cadence profiles (`Stabilize`, `Throughput`, `Deep Work`) with throttled commutation controls
 - Supports scripted nudges (multi-step prompt sequence with per-step pause)
+- Enforces a cognitive hygiene layer: intent latch checksum, attention budget limits, agitation score, and healthy-cycle deltas
 
 ## Run locally (macOS)
 

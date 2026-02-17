@@ -140,3 +140,20 @@ struct SurfaceProbe: Identifiable {
     let smokeStatus: String
     let error: String?
 }
+
+struct ScopeContract {
+    var objective: String = "Stabilize active project loops into smoke-green, bounded work."
+    var doneCriteria: String = "Smoke is pass and blocker count decreases."
+    var intentLatch: String = ""
+    var requireIntentLatch: Bool = true
+    var attentionBudgetActions: Int = 6
+    var maxCycles: Int = 3
+    var requireSmokePassToStop: Bool = true
+    var freezeOnDrift: Bool = true
+}
+
+struct InteractionHealth {
+    let score: Int
+    let label: String
+    let notes: [String]
+}
