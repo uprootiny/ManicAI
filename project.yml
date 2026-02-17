@@ -1,0 +1,47 @@
+name: ManicAI
+options:
+  bundleIdPrefix: org.uprootiny
+  deploymentTarget:
+    macOS: "13.0"
+settings:
+  base:
+    PRODUCT_NAME: ManicAI
+    SWIFT_VERSION: "5.9"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    CODE_SIGN_STYLE: Automatic
+packages: {}
+targets:
+  ManicAI:
+    type: application
+    platform: macOS
+    sources:
+      - path: ManicAI
+    info:
+      path: ManicAI/Info.plist
+      properties:
+        CFBundleDisplayName: ManicAI
+        CFBundleIdentifier: org.uprootiny.manicai
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        LSMinimumSystemVersion: "13.0"
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.uprootiny.manicai
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: ManicAI/Info.plist
+        CODE_SIGNING_ALLOWED: NO
+        CODE_SIGNING_REQUIRED: NO
+    scheme:
+      testTargets:
+        - ManicAITests
+
+  ManicAITests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: ManicAITests
+    dependencies:
+      - target: ManicAI
