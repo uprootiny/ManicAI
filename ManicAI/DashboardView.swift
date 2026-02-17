@@ -84,6 +84,13 @@ struct DashboardView: View {
         var id: String { rawValue }
     }
 
+    enum AssistantStack: String, CaseIterable, Identifiable {
+        case hyle = "Hyle Duplex"
+        case coggy = "Coggy Ontology"
+        case coupled = "Hyle + Coggy"
+        var id: String { rawValue }
+    }
+
     @StateObject private var client = PanelClient()
     @State private var autopilotPrompt = "run smoke checks, fix first blocker, rerun smoke, report concise status"
     @State private var opsMode: OpsMode = .verify
@@ -125,6 +132,7 @@ struct DashboardView: View {
     @State private var replayTask: Task<Void, Never>?
     @State private var timelineKindFilter = "ALL"
     @State private var selectedProfileLayers: Set<String> = ["intent", "cadence", "blockers"]
+    @State private var assistantStack: AssistantStack = .coupled
 
     var body: some View {
         GeometryReader { geo in
@@ -583,6 +591,27 @@ struct DashboardView: View {
                         client.enableFallbackRouting = systemProfile != .architected
                     }
                     .buttonStyle(.borderedProminent)
+                }
+            }
+            GlassCard(title: "Assistant Stack") {
+                Picker("Stack", selection: $assistantStack) {
+                    ForEach(AssistantStack.allCases) { s in
+                        Text(s.rawValue).tag(s)
+                    }
+                }
+                .pickerStyle(.segmented)
+                Text(stackGuidance)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                HStack {
+                    Button("Apply Stack Template") {
+                        applyStackTemplate(assistantStack)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    Button("Prime Loop Prompt") {
+                        autopilotPrompt = stackPrimePrompt(assistantStack)
+                    }
+                    .buttonStyle(.bordered)
                 }
             }
             GlassCard(title: "Telemetry Memory") {
@@ -1391,6 +1420,8 @@ struct DashboardView: View {
         let cadence = TimelineEngine.cadenceDeltas(client.promptHistory)
         let mean = cadence.isEmpty ? 0 : cadence.reduce(0, +) / Double(cadence.count)
         let promptN = client.promptHistory.filter { $0.kind == .prompt }.count
+        let duplexN = client.promptHistory.filter { $0.kind == .duplex }.count
+        let ontN = client.promptHistory.filter { $0.kind == .ontology }.count
         let gitN = client.promptHistory.filter { $0.kind == .git }.count
         let fileN = client.promptHistory.filter { $0.kind == .file }.count
         let serviceN = client.promptHistory.filter { $0.kind == .service }.count
@@ -1398,7 +1429,7 @@ struct DashboardView: View {
         return """
         total_events=\(total)
         mean_cadence=\(String(format: "%.1f", mean))s
-        layers: prompt=\(promptN) git=\(gitN) file=\(fileN) service=\(serviceN)
+        layers: prompt=\(promptN) duplex=\(duplexN) ontology=\(ontN) git=\(gitN) file=\(fileN) service=\(serviceN)
         health=\(client.interactionHealth.label) score=\(client.interactionHealth.score)
         breakers_open=\(openBreakers) degraded=\(client.degradedMode)
         cadence_mode=\(client.cadenceNote)
@@ -1421,9 +1452,9 @@ struct DashboardView: View {
 
     private var materiaMetrics: (duplexCount: Int, vesselCount: Int, crystalCount: Int, total: Int) {
         let total = max(1, client.promptHistory.count)
-        let duplex = client.promptHistory.filter { $0.kind == .prompt }.count
+        let duplex = client.promptHistory.filter { $0.kind == .prompt || $0.kind == .duplex }.count
         let vessel = client.promptHistory.filter { $0.kind == .service }.count
-        let crystal = client.promptHistory.filter { $0.kind == .git || $0.kind == .file }.count
+        let crystal = client.promptHistory.filter { $0.kind == .git || $0.kind == .file || $0.kind == .ontology }.count
         return (duplex, vessel, crystal, total)
     }
 
@@ -1647,9 +1678,61 @@ struct DashboardView: View {
         """
     }
 
+    private var stackGuidance: String {
+        switch assistantStack {
+        case .hyle:
+            return "Shape duplex stream into concise API-ready actions; optimize cadence and guardrails."
+        case .coggy:
+            return "Route prompts through ontology grounding (attend/infer/reflect) before execution."
+        case .coupled:
+            return "Use Hyle as vessel and Coggy as crystallizer: shape -> ground -> smoke -> delta."
+        }
+    }
+
+    private func stackPrimePrompt(_ s: AssistantStack) -> String {
+        switch s {
+        case .hyle:
+            return "hyle mode: compress duplex slop into bounded actions, run smoke, report concise deltas"
+        case .coggy:
+            return "coggy mode: parse concepts, ground ontology links, infer blocker, propose one deterministic fix"
+        case .coupled:
+            return "coupled mode: shape duplex feed (hyle), ground through ontology (coggy), execute one smoke-verified repair cycle"
+        }
+    }
+
+    private func applyStackTemplate(_ s: AssistantStack) {
+        autopilotPrompt = stackPrimePrompt(s)
+        switch s {
+        case .hyle:
+            refreshCadenceSec = 5
+            client.autopilotCooldownSec = 7
+            client.actionDelayMs = 900
+            client.fanoutPerCycle = 3
+            client.enableFallbackRouting = true
+            client.fallbackFluencyThreshold = 40
+        case .coggy:
+            refreshCadenceSec = 10
+            client.autopilotCooldownSec = 16
+            client.actionDelayMs = 1800
+            client.fanoutPerCycle = 1
+            client.enableFallbackRouting = false
+            client.fallbackFluencyThreshold = 30
+        case .coupled:
+            refreshCadenceSec = 7
+            client.autopilotCooldownSec = 11
+            client.actionDelayMs = 1300
+            client.fanoutPerCycle = 2
+            client.enableFallbackRouting = true
+            client.fallbackFluencyThreshold = 45
+        }
+        startWatchLoopIfNeeded()
+    }
+
     private func kindColor(_ kind: TimelineKind) -> Color {
         switch kind {
         case .prompt: return .mint
+        case .duplex: return .blue
+        case .ontology: return .purple
         case .git: return .orange
         case .file: return .yellow
         case .service: return .cyan

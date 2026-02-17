@@ -82,7 +82,17 @@
 ## Timeline event model
 - Timeline now stores typed events:
   - `prompt`: duplex/raw prompt supply
+  - `duplex`: explicit duplex-feed shaping operations
+  - `ontology`: ontology-grounding/inference layer operations
   - `service`: API interactions
   - `git`: commit/branch/diff artifacts
   - `file`: file modification artifacts
 - Event tracks can be filtered by target and kind, then replayed/scrubbed in the DAW-style view.
+
+## Hyle/Coggy stack profiles
+- `Hyle Duplex`:
+  - emphasizes rapid duplex-feed shaping and API vessel routing
+- `Coggy Ontology`:
+  - emphasizes ontology parsing/grounding before action
+- `Hyle + Coggy`:
+  - duplex shaping -> ontology grounding -> smoke-verified crystallization

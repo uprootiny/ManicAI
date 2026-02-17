@@ -264,6 +264,8 @@ struct PromptEvent: Codable, Identifiable {
 
 enum TimelineKind: String, Codable, CaseIterable {
     case prompt
+    case duplex
+    case ontology
     case git
     case file
     case service

@@ -1130,6 +1130,12 @@ final class PanelClient: ObservableObject {
 
     private func classifyPromptKind(_ prompt: String) -> TimelineKind {
         let p = prompt.lowercased()
+        if p.contains("ontology") || p.contains("conceptnode") || p.contains("infer") || p.contains("reflect") || p.contains("ground") || p.contains("attend") {
+            return .ontology
+        }
+        if p.contains("openrouter") || p.contains("free model") || p.contains("duplex") || p.contains("provider") || p.contains("slop") {
+            return .duplex
+        }
         if p.contains("git commit") || p.contains("commit") || p.contains("branch") || p.contains("rebase") {
             return .git
         }

@@ -44,4 +44,12 @@ final class TimelineEngineTests: XCTestCase {
         XCTAssertEqual(ev.kind, .prompt)
         XCTAssertEqual(ev.route, "x")
     }
+
+    func testPromptEventDecodeWithOntologyKind() throws {
+        let json = """
+        {"id":"00000000-0000-0000-0000-000000000001","ts":1,"route":"x","target":"t","prompt":"p","kind":"ontology"}
+        """.data(using: .utf8)!
+        let ev = try JSONDecoder().decode(PromptEvent.self, from: json)
+        XCTAssertEqual(ev.kind, .ontology)
+    }
 }
