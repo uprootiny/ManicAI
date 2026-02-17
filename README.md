@@ -27,7 +27,9 @@ Derived from the existing macOS build pipeline patterns in `uprootiny/Flycut`, a
 - dual target matrix:
   - `tahoe-compat` on `macos-15` with `MACOSX_DEPLOYMENT_TARGET=15.0`
   - `intel-baseline` on `macos-15-intel` with `MACOSX_DEPLOYMENT_TARGET=13.0`
+  - `legacy-10-11` on `macos-15-intel` with `MACOSX_DEPLOYMENT_TARGET=10.11` (AppKit target: `ManicAILegacy`)
 - SwiftUI app build + unit tests
+- AppKit fallback shell for El Capitan compatibility
 - unsigned build on GitHub macOS runners
 - DMG/ZIP artifact packaging
   - ZIP via `ditto --sequesterRsrc --keepParent` to preserve app bundle metadata

@@ -38,6 +38,30 @@ targets:
       testTargets:
         - ManicAITests
 
+  ManicAILegacy:
+    type: application
+    platform: macOS
+    sources:
+      - path: ManicAILegacy
+    info:
+      path: ManicAILegacy/Info.plist
+      properties:
+        CFBundleDisplayName: ManicAI Legacy
+        CFBundleIdentifier: org.uprootiny.manicai.legacy
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        LSMinimumSystemVersion: "10.11"
+        NSHighResolutionCapable: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.uprootiny.manicai.legacy
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: ManicAILegacy/Info.plist
+        MACOSX_DEPLOYMENT_TARGET: "10.11"
+        SWIFT_VERSION: "5.9"
+        CODE_SIGNING_ALLOWED: NO
+        CODE_SIGNING_REQUIRED: NO
+
   ManicAITests:
     type: bundle.unit-test
     platform: macOS

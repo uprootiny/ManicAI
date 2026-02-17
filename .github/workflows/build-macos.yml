@@ -15,13 +15,30 @@ jobs:
           - id: tahoe-compat
             runner: macos-15
             xcode: latest-stable
+            scheme: ManicAI
+            app_bundle: ManicAI.app
             deployment: "15.0"
             artifact_suffix: tahoe-compat
+            legacy_compat: false
+            run_tests: true
           - id: intel-baseline
             runner: macos-15-intel
             xcode: latest-stable
+            scheme: ManicAI
+            app_bundle: ManicAI.app
             deployment: "13.0"
             artifact_suffix: intel-13_0
+            legacy_compat: false
+            run_tests: true
+          - id: legacy-10-11
+            runner: macos-15-intel
+            xcode: latest-stable
+            scheme: ManicAILegacy
+            app_bundle: ManicAILegacy.app
+            deployment: "10.11"
+            artifact_suffix: legacy-10_11
+            legacy_compat: true
+            run_tests: false
 
     runs-on: ${{ matrix.target.runner }}
 
@@ -44,6 +61,17 @@ jobs:
           brew update
           brew install xcodegen
 
+      - name: Legacy deployment compatibility
+        if: matrix.target.legacy_compat == true
+        run: |
+          XCODE_PATH=$(xcode-select -p)
+          ARC_DIR="$XCODE_PATH/Toolchains/XcodeDefault.xctoolchain/usr/lib/arc"
+          sudo mkdir -p "$ARC_DIR"
+          curl -L -o /tmp/libarclite_macosx.a \
+            "https://github.com/kamyarelyasi/Libarclite-Files/raw/main/libarclite_macosx.a"
+          sudo cp /tmp/libarclite_macosx.a "$ARC_DIR/"
+          ls -la "$ARC_DIR"
+
       - name: Generate project
         run: |
           xcodegen generate
@@ -53,7 +81,7 @@ jobs:
         run: |
           xcodebuild \
             -project ManicAI.xcodeproj \
-            -scheme ManicAI \
+            -scheme ${{ matrix.target.scheme }} \
             -configuration Release \
             -derivedDataPath build \
             MACOSX_DEPLOYMENT_TARGET=${{ matrix.target.deployment }} \
@@ -64,17 +92,18 @@ jobs:
             build
 
       - name: Run unit tests
+        if: matrix.target.run_tests == true
         run: |
           xcodebuild \
             -project ManicAI.xcodeproj \
-            -scheme ManicAI \
+            -scheme ${{ matrix.target.scheme }} \
             MACOSX_DEPLOYMENT_TARGET=${{ matrix.target.deployment }} \
             -destination 'platform=macOS' \
             test
 
       - name: Package artifacts
         run: |
-          APP_PATH="build/Build/Products/Release/ManicAI.app"
+          APP_PATH="build/Build/Products/Release/${{ matrix.target.app_bundle }}"
           test -d "$APP_PATH"
 
           mkdir -p dist
@@ -85,27 +114,27 @@ jobs:
             -ov -format UDZO \
             -imagekey zlib-level=9 \
             -fs HFS+ \
-            ManicAI.dmg
+            ManicAI-${{ matrix.target.artifact_suffix }}.dmg
 
-          ditto -c -k --sequesterRsrc --keepParent "dist/ManicAI.app" "ManicAI.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "ManicAI-${{ matrix.target.artifact_suffix }}.zip"
 
       - name: Upload DMG
         uses: actions/upload-artifact@v4
         with:
           name: ManicAI-dmg-${{ matrix.target.artifact_suffix }}
-          path: ManicAI.dmg
+          path: ManicAI-${{ matrix.target.artifact_suffix }}.dmg
           retention-days: 30
 
       - name: Upload ZIP
         uses: actions/upload-artifact@v4
         with:
           name: ManicAI-zip-${{ matrix.target.artifact_suffix }}
-          path: ManicAI.zip
+          path: ManicAI-${{ matrix.target.artifact_suffix }}.zip
           retention-days: 30
 
       - name: Upload app bundle
         uses: actions/upload-artifact@v4
         with:
           name: ManicAI-app-${{ matrix.target.artifact_suffix }}
-          path: dist/ManicAI.app
+          path: ${{ format('dist/{0}', matrix.target.app_bundle) }}
           retention-days: 30
