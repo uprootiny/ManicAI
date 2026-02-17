@@ -866,6 +866,26 @@ struct DashboardView: View {
                     .padding(6)
                     .background(Color.black.opacity(0.2))
                     .clipShape(RoundedRectangle(cornerRadius: 6))
+                HStack {
+                    Button("Export Profile Snapshot") {
+                        client.exportSessionProfileSnapshot()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    Button("Copy Primer") {
+                        copyToClipboard(composeLayerPrimer(from: sessionProfileLayers))
+                    }
+                    .buttonStyle(.bordered)
+                }
+                if !client.profileSnapshotPath.isEmpty {
+                    Text("profile json: \(client.profileSnapshotPath)")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+                if !client.profileSnapshotMarkdownPath.isEmpty {
+                    Text("profile md: \(client.profileSnapshotMarkdownPath)")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
             }
             GlassCard(title: "Materia Flow") {
                 let m = materiaMetrics

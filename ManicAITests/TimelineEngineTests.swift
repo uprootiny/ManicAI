@@ -66,4 +66,21 @@ final class TimelineEngineTests: XCTestCase {
         let q = TimelineEngine.edgeQuality(from: .duplex, to: .service, latencySec: 5)
         XCTAssertGreaterThanOrEqual(q, 80)
     }
+
+    func testLayerCountsAndCadenceStats() {
+        let events = [
+            PromptEvent(id: UUID(), ts: 0, route: "a", target: "x", prompt: "p", kind: .prompt),
+            PromptEvent(id: UUID(), ts: 10, route: "b", target: "x", prompt: "p", kind: .service),
+            PromptEvent(id: UUID(), ts: 40, route: "c", target: "x", prompt: "p", kind: .service),
+            PromptEvent(id: UUID(), ts: 100, route: "d", target: "x", prompt: "p", kind: .git)
+        ]
+        let counts = TimelineEngine.layerCounts(events)
+        XCTAssertEqual(counts[.service], 2)
+        XCTAssertEqual(counts[.git], 1)
+
+        let c = TimelineEngine.cadenceStats(events)
+        XCTAssertEqual(c.meanSec, 33.333333333333336, accuracy: 0.001)
+        XCTAssertEqual(c.p50Sec, 30, accuracy: 0.001)
+        XCTAssertEqual(c.p90Sec, 60, accuracy: 0.001)
+    }
 }

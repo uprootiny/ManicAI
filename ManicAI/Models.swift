@@ -279,3 +279,26 @@ struct LayerEdgeMetric: Identifiable {
     let avgLatencySec: Double
     let avgQuality: Double
 }
+
+struct CadenceStats: Codable {
+    let meanSec: Double
+    let p50Sec: Double
+    let p90Sec: Double
+    let burstRatioPct: Double
+    let longestIdleSec: Double
+}
+
+struct SessionProfileSnapshot: Codable {
+    let exportedAt: TimeInterval
+    let totalEvents: Int
+    let layerCounts: [String: Int]
+    let cadence: CadenceStats
+    let openRouteBreakers: Int
+    let openNodeRouteBreakers: Int
+    let degradedMode: Bool
+    let degradedReason: String
+    let interactionHealthScore: Int
+    let interactionHealthLabel: String
+    let topEdges: [String]
+    let notes: [String]
+}

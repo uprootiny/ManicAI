@@ -18,6 +18,7 @@ A styled macOS operator app for agent-heavy development environments.
 - Adds DAW-style prompt timeline tracks with scrubbing, replay navigation, and clip operations (copy/cut/paste across tracks)
 - Adds a skeuomorphic sampler palette for promptset/cadence/paramset pattern libraries (micro/meso/macro scales)
 - Persists prompt history and writes cadence analysis reports
+- Exports layered session profile snapshots (`session-profile.json` + `session-profile.md`)
 
 ## Run locally (macOS)
 

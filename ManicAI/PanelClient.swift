@@ -46,6 +46,8 @@ final class PanelClient: ObservableObject {
     @Published var cadenceReport: String = ""
     @Published var promptHistoryPath: String = ""
     @Published var cadenceReportPath: String = ""
+    @Published var profileSnapshotPath: String = ""
+    @Published var profileSnapshotMarkdownPath: String = ""
     @Published var layerEdges: [LayerEdgeMetric] = []
     private var lastAutopilotAt: Date?
     private var lastAutopilotAtByTarget: [String: Date] = [:]
@@ -103,6 +105,9 @@ final class PanelClient: ObservableObject {
         let urls = historyURLs()
         promptHistoryPath = urls.history.path
         cadenceReportPath = urls.report.path
+        let profile = profileURLs()
+        profileSnapshotPath = profile.json.path
+        profileSnapshotMarkdownPath = profile.markdown.path
     }
 
     func refresh() async {
@@ -768,6 +773,27 @@ final class PanelClient: ObservableObject {
         }
     }
 
+    func exportSessionProfileSnapshot() {
+        do {
+            try ensureHistoryDirectory()
+            let profile = currentSessionProfileSnapshot()
+            let urls = profileURLs()
+            let enc = JSONEncoder()
+            enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let data = try enc.encode(profile)
+            try data.write(to: urls.json, options: .atomic)
+            let md = renderProfileMarkdown(profile)
+            try md.write(to: urls.markdown, atomically: true, encoding: .utf8)
+            profileSnapshotPath = urls.json.path
+            profileSnapshotMarkdownPath = urls.markdown.path
+            lastAction = "Session profile exported"
+            log("profile export: \(urls.json.path)")
+        } catch {
+            self.error = "Profile export failed: \(error.localizedDescription)"
+            log("profile export failed: \(error.localizedDescription)")
+        }
+    }
+
     func deletePromptEvents(ids: Set<UUID>) {
         guard !ids.isEmpty else { return }
         promptHistory.removeAll { ids.contains($0.id) }
@@ -1207,6 +1233,63 @@ final class PanelClient: ObservableObject {
         layerEdges = TimelineEngine.layerEdges(promptHistory)
     }
 
+    private func currentSessionProfileSnapshot() -> SessionProfileSnapshot {
+        let counts = TimelineEngine.layerCounts(promptHistory)
+        let cadence = TimelineEngine.cadenceStats(promptHistory)
+        let layerCountsString = Dictionary(uniqueKeysWithValues: counts.map { ($0.key.rawValue, $0.value) })
+        let openRoutes = routeBreakers.values.filter { $0.isOpen }.count
+        let openNodeRoutes = nodeRouteBreakers.values.filter { $0.isOpen }.count
+        let top = layerEdges.prefix(12).map {
+            "\($0.from.rawValue)->\($0.to.rawValue) n=\($0.count) lat=\(String(format: "%.1f", $0.avgLatencySec)) q=\(String(format: "%.1f", $0.avgQuality))"
+        }
+        return SessionProfileSnapshot(
+            exportedAt: Date().timeIntervalSince1970,
+            totalEvents: promptHistory.count,
+            layerCounts: layerCountsString,
+            cadence: cadence,
+            openRouteBreakers: openRoutes,
+            openNodeRouteBreakers: openNodeRoutes,
+            degradedMode: degradedMode,
+            degradedReason: degradedReason,
+            interactionHealthScore: interactionHealth.score,
+            interactionHealthLabel: interactionHealth.label,
+            topEdges: Array(top),
+            notes: interactionHealth.notes
+        )
+    }
+
+    private func renderProfileMarkdown(_ s: SessionProfileSnapshot) -> String {
+        let dt = Date(timeIntervalSince1970: s.exportedAt)
+        let counts = s.layerCounts.keys.sorted().map { "- \($0): \(s.layerCounts[$0] ?? 0)" }.joined(separator: "\n")
+        let edges = s.topEdges.map { "- \($0)" }.joined(separator: "\n")
+        let notes = s.notes.map { "- \($0)" }.joined(separator: "\n")
+        return """
+        # Session Profile Snapshot
+
+        - Exported: \(dt.formatted(date: .abbreviated, time: .standard))
+        - Total events: \(s.totalEvents)
+        - Interaction health: \(s.interactionHealthLabel) (\(s.interactionHealthScore))
+        - Degraded mode: \(s.degradedMode) \(s.degradedReason)
+        - Breakers: routes=\(s.openRouteBreakers), node-routes=\(s.openNodeRouteBreakers)
+
+        ## Layer Counts
+        \(counts)
+
+        ## Cadence
+        - mean: \(String(format: "%.2f", s.cadence.meanSec))s
+        - p50: \(String(format: "%.2f", s.cadence.p50Sec))s
+        - p90: \(String(format: "%.2f", s.cadence.p90Sec))s
+        - burst<60s: \(String(format: "%.2f", s.cadence.burstRatioPct))%
+        - longest idle: \(String(format: "%.2f", s.cadence.longestIdleSec))s
+
+        ## Top Edges
+        \(edges.isEmpty ? "- none" : edges)
+
+        ## Notes
+        \(notes.isEmpty ? "- none" : notes)
+        """
+    }
+
     private func generateCadenceReport() -> String {
         let sorted = promptHistory.sorted(by: { $0.ts < $1.ts })
         guard sorted.count >= 2 else {
@@ -1257,6 +1340,11 @@ final class PanelClient: ObservableObject {
     private func historyURLs() -> (history: URL, report: URL) {
         let dir = historyDirectoryURL()
         return (dir.appendingPathComponent("prompt-history.ndjson"), dir.appendingPathComponent("prompt-cadence-report.txt"))
+    }
+
+    private func profileURLs() -> (json: URL, markdown: URL) {
+        let dir = historyDirectoryURL()
+        return (dir.appendingPathComponent("session-profile.json"), dir.appendingPathComponent("session-profile.md"))
     }
 
     private func historyDirectoryURL() -> URL {

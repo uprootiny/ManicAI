@@ -96,3 +96,14 @@
   - emphasizes ontology parsing/grounding before action
 - `Hyle + Coggy`:
   - duplex shaping -> ontology grounding -> smoke-verified crystallization
+
+## Session profile export
+- Exports layered session profile snapshots to:
+  - `session-profile.json`
+  - `session-profile.md`
+- Snapshot includes:
+  - layer counts
+  - cadence stats
+  - breaker/degraded state
+  - interaction health
+  - top transform edges

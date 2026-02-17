@@ -37,6 +37,27 @@ enum TimelineEngine {
         return zip(sorted.dropFirst(), sorted).map { max(0, $0.ts - $1.ts) }
     }
 
+    static func layerCounts(_ events: [PromptEvent]) -> [TimelineKind: Int] {
+        var out: [TimelineKind: Int] = [:]
+        for ev in events {
+            out[ev.kind, default: 0] += 1
+        }
+        return out
+    }
+
+    static func cadenceStats(_ events: [PromptEvent]) -> CadenceStats {
+        let deltas = cadenceDeltas(events).sorted()
+        guard !deltas.isEmpty else {
+            return CadenceStats(meanSec: 0, p50Sec: 0, p90Sec: 0, burstRatioPct: 0, longestIdleSec: 0)
+        }
+        let mean = deltas.reduce(0, +) / Double(deltas.count)
+        let p50 = percentile(deltas, q: 0.50)
+        let p90 = percentile(deltas, q: 0.90)
+        let burst = (Double(deltas.filter { $0 < 60 }.count) / Double(deltas.count)) * 100
+        let longest = deltas.last ?? 0
+        return CadenceStats(meanSec: mean, p50Sec: p50, p90Sec: p90, burstRatioPct: burst, longestIdleSec: longest)
+    }
+
     static func layerEdges(_ events: [PromptEvent]) -> [LayerEdgeMetric] {
         let sorted = sortedEvents(events)
         guard sorted.count > 1 else { return [] }
@@ -85,5 +106,12 @@ enum TimelineEngine {
         if latencySec < 30 { score += 10.0 }
         if latencySec > 300 { score -= 15.0 }
         return min(100, max(0, score))
+    }
+
+    private static func percentile(_ xs: [Double], q: Double) -> Double {
+        guard !xs.isEmpty else { return 0 }
+        let clamped = min(1, max(0, q))
+        let idx = Int((Double(xs.count - 1) * clamped).rounded())
+        return xs[idx]
     }
 }
