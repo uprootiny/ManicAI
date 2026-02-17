@@ -35,4 +35,13 @@ final class TimelineEngineTests: XCTestCase {
         XCTAssertEqual(ds[0], 3)
         XCTAssertEqual(ds[1], 6)
     }
+
+    func testPromptEventBackwardDecodeDefaultsKind() throws {
+        let json = """
+        {"id":"00000000-0000-0000-0000-000000000001","ts":1,"route":"x","target":"t","prompt":"p"}
+        """.data(using: .utf8)!
+        let ev = try JSONDecoder().decode(PromptEvent.self, from: json)
+        XCTAssertEqual(ev.kind, .prompt)
+        XCTAssertEqual(ev.route, "x")
+    }
 }

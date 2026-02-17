@@ -78,3 +78,11 @@
   - stronger throughput cadence, less fallback
 - `Hybrid`:
   - blend drift controls with contract/smoke-first execution
+
+## Timeline event model
+- Timeline now stores typed events:
+  - `prompt`: duplex/raw prompt supply
+  - `service`: API interactions
+  - `git`: commit/branch/diff artifacts
+  - `file`: file modification artifacts
+- Event tracks can be filtered by target and kind, then replayed/scrubbed in the DAW-style view.

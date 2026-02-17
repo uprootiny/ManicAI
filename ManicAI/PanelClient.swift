@@ -188,6 +188,7 @@ final class PanelClient: ObservableObject {
             lastAction = "Autopilot OK (\(selectedProject ?? "no-project")) \(payload.prefix(180))"
             log("autopilot ok: \(payload.prefix(120))")
             recordTimelineEvent(kind: .service, route: "api/autopilot/run", target: nodeHint, text: "ok")
+            recordArtifactEvents(from: payload, target: nodeHint)
             markRoute("autopilot/run", ok: true, nodeHint: nodeHint)
             await refresh()
         } catch {
@@ -293,6 +294,7 @@ final class PanelClient: ObservableObject {
             actionsInCurrentScope += 1
             log("smoke ok[\(selectedProject)]: \(text.prefix(120))")
             recordTimelineEvent(kind: .service, route: "api/smoke", target: selectedProject, text: "ok")
+            recordArtifactEvents(from: text, target: selectedProject)
             markRoute("smoke", ok: true)
             await refresh()
             return text
@@ -674,6 +676,7 @@ final class PanelClient: ObservableObject {
             lastAction = "\(action) ok"
             log("\(action) ok: \(text.prefix(140))")
             recordTimelineEvent(kind: .service, route: "api/\(action)", target: nodeHint, text: "ok")
+            recordArtifactEvents(from: text, target: nodeHint)
             markRoute(action, ok: true, nodeHint: nodeHint)
             await refresh()
             return text
@@ -1134,6 +1137,40 @@ final class PanelClient: ObservableObject {
             return .file
         }
         return .prompt
+    }
+
+    private func recordArtifactEvents(from text: String, target: String?) {
+        let lower = text.lowercased()
+        if lower.contains("commit ") || lower.contains("files changed") || lower.contains("create mode") || lower.contains("delete mode") {
+            recordTimelineEvent(kind: .git, route: "artifact/git", target: target, text: summarizeGitArtifact(text))
+        }
+
+        let fileHints = detectFilePaths(in: text)
+        for path in fileHints.prefix(8) {
+            recordTimelineEvent(kind: .file, route: "artifact/file", target: target, text: path)
+        }
+    }
+
+    private func summarizeGitArtifact(_ text: String) -> String {
+        let lines = text.split(separator: "\n").map(String.init)
+        if let firstCommit = lines.first(where: { $0.lowercased().contains("commit ") || $0.contains("[") && $0.contains("]") }) {
+            return firstCommit
+        }
+        return "git artifact detected"
+    }
+
+    private func detectFilePaths(in text: String) -> [String] {
+        let tokens = text.split(whereSeparator: { $0 == " " || $0 == "\n" || $0 == "\t" || $0 == "\"" || $0 == "'" }).map(String.init)
+        let exts = [".swift", ".md", ".clj", ".edn", ".json", ".yaml", ".yml", ".toml", ".sh", ".py", ".ts", ".js", ".html", ".css", ".txt"]
+        var out: [String] = []
+        for tok in tokens {
+            if tok.contains("/") || tok.contains("\\") || tok.contains(".") {
+                if exts.contains(where: { tok.lowercased().hasSuffix($0) }) {
+                    out.append(tok.trimmingCharacters(in: .punctuationCharacters))
+                }
+            }
+        }
+        return Array(Set(out)).sorted()
     }
 
     private func generateCadenceReport() -> String {
