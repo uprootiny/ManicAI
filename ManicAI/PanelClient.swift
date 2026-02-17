@@ -50,11 +50,14 @@ final class PanelClient: ObservableObject {
     @Published var profileSnapshotMarkdownPath: String = ""
     @Published var layerEdges: [LayerEdgeMetric] = []
     @Published var eventBudgetSummary: String = ""
+    @Published var performance = PerformanceSnapshot()
     private var lastAutopilotAt: Date?
     private var lastAutopilotAtByTarget: [String: Date] = [:]
     private var refreshQueued: Bool = false
     private var lastCapabilityScanAt: Date?
     private var lastStateServiceEventAt: Date?
+    private var refreshSamplesMs: [Double] = []
+    private var droppedStateServiceEvents: Int = 0
     private var consecutiveErrors: Int = 0
     private var previousCandidateCount: Int = 0
     private var previousSmokeStatus: String = "unknown"
@@ -124,6 +127,7 @@ final class PanelClient: ObservableObject {
             refreshQueued = true
             return
         }
+        let t0 = Date()
         isRefreshing = true
         do {
             let url = pathURL("api/state")
@@ -137,6 +141,8 @@ final class PanelClient: ObservableObject {
             if shouldRecordStateServiceEvent() {
                 recordTimelineEvent(kind: .service, route: "api/state", target: baseURL.host, text: "refresh ok")
                 lastStateServiceEventAt = Date()
+            } else {
+                droppedStateServiceEvents += 1
             }
             if shouldScanCapabilities() {
                 await detectCapabilities()
@@ -151,6 +157,7 @@ final class PanelClient: ObservableObject {
             log("refresh failed: \(error.localizedDescription)")
             recordTimelineEvent(kind: .service, route: "api/state", target: baseURL.host, text: "refresh failed: \(error.localizedDescription)")
         }
+        recordRefreshDurationMs(Date().timeIntervalSince(t0) * 1000)
         isRefreshing = false
         if refreshQueued {
             refreshQueued = false
@@ -743,6 +750,9 @@ final class PanelClient: ObservableObject {
         promptHistory = []
         layerEdges = []
         eventBudgetSummary = ""
+        performance = PerformanceSnapshot()
+        refreshSamplesMs = []
+        droppedStateServiceEvents = 0
         UserDefaults.standard.removeObject(forKey: Self.routeStatsKey)
         UserDefaults.standard.removeObject(forKey: Self.nodeStatsKey)
         UserDefaults.standard.removeObject(forKey: Self.actionLogKey)
@@ -915,6 +925,8 @@ final class PanelClient: ObservableObject {
         if let data = try? encoder.encode(Array(promptHistory.suffix(maxPersistedPromptEntries))) {
             UserDefaults.standard.set(data, forKey: Self.promptHistoryMemKey)
         }
+        performance.persistFlushes += 1
+        performance.persistQueued = false
     }
 
     private func shouldScanCapabilities() -> Bool {
@@ -1246,6 +1258,8 @@ final class PanelClient: ObservableObject {
     private func recomputeLayerEdges() {
         layerEdges = TimelineEngine.layerEdges(promptHistory)
         updateEventBudgetSummary()
+        performance.recomputePasses += 1
+        performance.recomputeQueued = false
     }
 
     private func appendEvent(_ ev: PromptEvent) {
@@ -1261,6 +1275,7 @@ final class PanelClient: ObservableObject {
 
     private func queuePersistence() {
         persistTask?.cancel()
+        performance.persistQueued = true
         persistTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 400_000_000)
             await MainActor.run {
@@ -1271,6 +1286,7 @@ final class PanelClient: ObservableObject {
 
     private func queueRecomputeLayerEdges() {
         recomputeTask?.cancel()
+        performance.recomputeQueued = true
         recomputeTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 250_000_000)
             await MainActor.run {
@@ -1281,11 +1297,26 @@ final class PanelClient: ObservableObject {
 
     private func updateEventBudgetSummary() {
         eventBudgetSummary = "events \(promptHistory.count)/\(maxPromptHistoryEntries) | logs \(actionLog.count)/\(maxActionLogEntries) | notes \(schedulerNotes.count)/\(maxSchedulerNotesEntries)"
+        performance.droppedStateEvents = droppedStateServiceEvents
+        let eventBytes = Double(promptHistory.count) * 900.0
+        let logBytes = Double(actionLog.count + schedulerNotes.count) * 220.0
+        performance.estimatedMemoryMB = (eventBytes + logBytes) / (1024 * 1024)
     }
 
     private func shouldRecordStateServiceEvent() -> Bool {
         guard let last = lastStateServiceEventAt else { return true }
         return Date().timeIntervalSince(last) >= 30
+    }
+
+    private func recordRefreshDurationMs(_ ms: Double) {
+        performance.lastRefreshMs = ms
+        refreshSamplesMs.append(ms)
+        if refreshSamplesMs.count > 120 {
+            refreshSamplesMs.removeFirst(refreshSamplesMs.count - 120)
+        }
+        let avg = refreshSamplesMs.reduce(0, +) / Double(max(1, refreshSamplesMs.count))
+        performance.avgRefreshMs = avg
+        performance.maxRefreshMs = max(performance.maxRefreshMs, ms)
     }
 
     private func currentSessionProfileSnapshot() -> SessionProfileSnapshot {

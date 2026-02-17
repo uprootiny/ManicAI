@@ -653,6 +653,21 @@ struct DashboardView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            GlassCard(title: "Performance Inspector") {
+                let p = client.performance
+                Text("refresh ms: last=\(String(format: "%.1f", p.lastRefreshMs)) avg=\(String(format: "%.1f", p.avgRefreshMs)) max=\(String(format: "%.1f", p.maxRefreshMs))")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                Text("flushes=\(p.persistFlushes) recomputes=\(p.recomputePasses) dropped_state_events=\(p.droppedStateEvents)")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                Text("queues: persist=\(p.persistQueued ? "busy" : "idle") recompute=\(p.recomputeQueued ? "busy" : "idle")")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                Text("est memory: \(String(format: "%.2f", p.estimatedMemoryMB)) MB")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
             GlassCard(title: "Panic + Lanes") {
                 if client.panicMode {
                     Text("Read-only containment active: \(client.panicReason)")

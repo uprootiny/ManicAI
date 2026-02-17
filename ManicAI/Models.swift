@@ -302,3 +302,15 @@ struct SessionProfileSnapshot: Codable {
     let topEdges: [String]
     let notes: [String]
 }
+
+struct PerformanceSnapshot {
+    var lastRefreshMs: Double = 0
+    var avgRefreshMs: Double = 0
+    var maxRefreshMs: Double = 0
+    var persistFlushes: Int = 0
+    var recomputePasses: Int = 0
+    var droppedStateEvents: Int = 0
+    var estimatedMemoryMB: Double = 0
+    var persistQueued: Bool = false
+    var recomputeQueued: Bool = false
+}
