@@ -4,6 +4,7 @@ import AppKit
 #endif
 
 struct DashboardView: View {
+    @Environment(\.openURL) private var openURL
     enum OpsMode: String, CaseIterable, Identifiable {
         case verify = "Verify"
         case plan = "Plan"
@@ -85,35 +86,69 @@ struct DashboardView: View {
     @State private var scopeObjective = ""
     @State private var scopeDone = ""
     @State private var scopeIntent = ""
+    @State private var targetFilter = ""
+    @State private var queuePrompt = ""
+    @State private var queueSessionID = ""
+    @State private var nudgeSessionID = ""
+    @State private var nudgeText = ""
+    @State private var paneTarget = ""
+    @State private var paneText = ""
+    @State private var spawnName = ""
+    @State private var spawnCommand = "hyle --free"
+    @State private var snapshotName = "remote-tmux"
+    @State private var snapshotText = ""
+    @State private var actionOutput = ""
 
     var body: some View {
-        VStack(spacing: 12) {
-            header
-            HStack(alignment: .top, spacing: 12) {
-                leftColumn
-                centerColumn
-                rightColumn
+        GeometryReader { geo in
+            let compact = geo.size.width < 1320
+            VStack(spacing: 12) {
+                header
+                if compact {
+                    ScrollView {
+                        VStack(spacing: 12) {
+                            leftColumn(compact: true)
+                            centerColumn
+                            rightColumn(compact: true)
+                        }
+                    }
+                } else {
+                    HStack(alignment: .top, spacing: 12) {
+                        leftColumn(compact: false)
+                        centerColumn
+                        rightColumn(compact: false)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .padding(14)
-        .background(
-            RadialGradient(colors: [Color(red: 0.07, green: 0.14, blue: 0.27), Color(red: 0.02, green: 0.03, blue: 0.06)], center: .topLeading, startRadius: 60, endRadius: 1100)
-                .ignoresSafeArea()
-        )
-        .task {
-            endpointInput = client.baseURL.absoluteString
-            await client.refresh()
-            if selectedProject.isEmpty {
-                selectedProject = client.state?.projects.first?.path ?? ""
+            .padding(14)
+            .background(
+                RadialGradient(colors: [Color(red: 0.07, green: 0.14, blue: 0.27), Color(red: 0.02, green: 0.03, blue: 0.06)], center: .topLeading, startRadius: 60, endRadius: 1100)
+                    .ignoresSafeArea()
+            )
+            .task {
+                endpointInput = client.baseURL.absoluteString
+                await client.refresh()
+                if selectedProject.isEmpty {
+                    selectedProject = client.state?.projects.first?.path ?? ""
+                }
+                if queueSessionID.isEmpty {
+                    queueSessionID = client.state?.sessions.first?.id ?? ""
+                }
+                if nudgeSessionID.isEmpty {
+                    nudgeSessionID = queueSessionID
+                }
+                if paneTarget.isEmpty {
+                    paneTarget = client.state?.takeoverCandidates.first?.target ?? ""
+                }
+                scriptedNudges = cadenceProfile.script
+                scopeObjective = client.scope.objective
+                scopeDone = client.scope.doneCriteria
+                scopeIntent = client.scope.intentLatch
+                startWatchLoopIfNeeded()
             }
-            scriptedNudges = cadenceProfile.script
-            scopeObjective = client.scope.objective
-            scopeDone = client.scope.doneCriteria
-            scopeIntent = client.scope.intentLatch
-            startWatchLoopIfNeeded()
+            .onDisappear { watchTask?.cancel() }
         }
-        .onDisappear { watchTask?.cancel() }
     }
 
     private var header: some View {
@@ -122,6 +157,11 @@ struct DashboardView: View {
                 .font(.system(size: 15, weight: .bold, design: .monospaced))
                 .foregroundStyle(.cyan)
             Spacer()
+            if client.isRefreshing {
+                Text("syncing")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.mint)
+            }
             Text(statusLine)
                 .font(.system(size: 12, weight: .regular, design: .monospaced))
                 .foregroundStyle(.gray)
@@ -140,10 +180,11 @@ struct DashboardView: View {
                 Task { await client.refresh() }
             }
             .buttonStyle(.bordered)
+            .disabled(client.isRefreshing)
         }
     }
 
-    private var leftColumn: some View {
+    private func leftColumn(compact: Bool) -> some View {
         VStack(spacing: 12) {
             GlassCard(title: "Access") {
                 HStack {
@@ -171,6 +212,7 @@ struct DashboardView: View {
                     Task { await client.probeAndSelectBestEndpoint() }
                 }
                 .buttonStyle(.borderedProminent)
+                .disabled(client.isRefreshing)
 
                 Picker("Mode", selection: $opsMode) {
                     ForEach(OpsMode.allCases) { mode in
@@ -206,6 +248,14 @@ struct DashboardView: View {
                     .scrollContentBackground(.hidden)
                     .background(Color.black.opacity(0.18))
                     .clipShape(RoundedRectangle(cornerRadius: 8))
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        quickPromptButton("smoke+fix", "run smoke checks, fix first blocker, rerun smoke, report concise status")
+                        quickPromptButton("classify blockers", "classify blockers only, no writes, suggest minimal next action")
+                        quickPromptButton("stabilize", "stabilize noisy loops, run one bounded smoke-guided repair cycle")
+                    }
+                    .padding(.vertical, 2)
+                }
                 TextField("Project path for autopilot", text: $selectedProject)
                     .textFieldStyle(.roundedBorder)
                 Toggle("Use commutation (round-robin + delay)", isOn: $useCommutation)
@@ -241,6 +291,12 @@ struct DashboardView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(client.panicMode)
+                .disabled(!(client.capabilities.autopilot && client.capabilities.smoke))
+                if !autopilotReady {
+                    Text(autopilotDisabledReason)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.yellow)
+                }
             }
             GlassCard(title: "Scope Contract") {
                 TextField("Objective", text: $scopeObjective)
@@ -420,16 +476,42 @@ struct DashboardView: View {
                     .buttonStyle(.bordered)
                 }
             }
+            GlassCard(title: "API Capabilities") {
+                VStack(alignment: .leading, spacing: 4) {
+                    capabilityLine("state", client.capabilities.state)
+                    capabilityLine("autopilot", client.capabilities.autopilot)
+                    capabilityLine("smoke", client.capabilities.smoke)
+                    capabilityLine("pane/send", client.capabilities.paneSend)
+                    capabilityLine("queue/add", client.capabilities.queue)
+                    capabilityLine("queue/run", client.capabilities.queueRun)
+                    capabilityLine("spawn", client.capabilities.spawn)
+                    capabilityLine("nudge", client.capabilities.nudge)
+                    capabilityLine("snapshot/ingest", client.capabilities.snapshotIngest)
+                }
+            }
+            GlassCard(title: "API Validation") {
+                let missing = ControlSpecs.missingCriticalRoutes(capabilities: client.capabilities)
+                Text(missing.isEmpty ? "Critical routes ready" : "Missing critical: \(missing.joined(separator: ", "))")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(missing.isEmpty ? .green : .yellow)
+                ForEach(ControlSpecs.routes) { route in
+                    Text("\(route.method) \(route.path)\(route.critical ? " *" : "")")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
-        .frame(maxWidth: 360)
+        .frame(maxWidth: compact ? .infinity : 360)
     }
 
     private var centerColumn: some View {
         VStack(spacing: 12) {
             GlassCard(title: "Takeover Targets") {
+                TextField("Filter by target/command/auth", text: $targetFilter)
+                    .textFieldStyle(.roundedBorder)
                 ScrollView {
                     VStack(spacing: 8) {
-                        ForEach(client.state?.takeoverCandidates ?? []) { pane in
+                        ForEach(filteredCandidates) { pane in
                             VStack(alignment: .leading, spacing: 6) {
                                 Text(pane.target)
                                     .font(.system(size: 12, weight: .bold, design: .monospaced))
@@ -487,6 +569,12 @@ struct DashboardView: View {
                             .background(Color.white.opacity(0.03))
                             .clipShape(RoundedRectangle(cornerRadius: 10))
                         }
+                        if filteredCandidates.isEmpty {
+                            Text("No targets match current filter.")
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
                     }
                 }
             }
@@ -518,8 +606,123 @@ struct DashboardView: View {
         }
     }
 
-    private var rightColumn: some View {
+    private func rightColumn(compact: Bool) -> some View {
         VStack(spacing: 12) {
+            GlassCard(title: "Direct Controls") {
+                TextField("Queue prompt", text: $queuePrompt)
+                    .textFieldStyle(.roundedBorder)
+                HStack {
+                    TextField("Project path", text: $selectedProject)
+                        .textFieldStyle(.roundedBorder)
+                    TextField("Session id", text: $queueSessionID)
+                        .textFieldStyle(.roundedBorder)
+                }
+                HStack {
+                    Button("Queue Add") {
+                        Task {
+                            actionOutput = await client.queueAdd(
+                                prompt: queuePrompt,
+                                project: selectedProject.isEmpty ? nil : selectedProject,
+                                sessionID: queueSessionID.isEmpty ? nil : queueSessionID
+                            )
+                            queuePrompt = ""
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!client.capabilities.queue || queuePrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || client.panicMode)
+
+                    Button("Queue Run") {
+                        Task {
+                            actionOutput = await client.queueRun(
+                                project: selectedProject.isEmpty ? nil : selectedProject,
+                                sessionID: queueSessionID.isEmpty ? nil : queueSessionID
+                            )
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(!client.capabilities.queueRun || client.panicMode)
+                }
+
+                Divider()
+                HStack {
+                    TextField("Nudge session id", text: $nudgeSessionID)
+                        .textFieldStyle(.roundedBorder)
+                    TextField("Nudge text", text: $nudgeText)
+                        .textFieldStyle(.roundedBorder)
+                }
+                Button("Send Nudge") {
+                    Task {
+                        actionOutput = await client.nudge(sessionID: nudgeSessionID, text: nudgeText)
+                        nudgeText = ""
+                    }
+                }
+                .buttonStyle(.bordered)
+                .disabled(!client.capabilities.nudge || nudgeSessionID.isEmpty || nudgeText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || client.panicMode)
+
+                Divider()
+                HStack {
+                    TextField("Pane target", text: $paneTarget)
+                        .textFieldStyle(.roundedBorder)
+                    TextField("Pane text", text: $paneText)
+                        .textFieldStyle(.roundedBorder)
+                }
+                Button("Send Pane") {
+                    Task {
+                        actionOutput = await client.paneSend(target: paneTarget, text: paneText, enter: true)
+                        paneText = ""
+                    }
+                }
+                .buttonStyle(.bordered)
+                .disabled(!client.capabilities.paneSend || paneTarget.isEmpty || paneText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || client.panicMode)
+
+                Divider()
+                HStack {
+                    TextField("Spawn session name", text: $spawnName)
+                        .textFieldStyle(.roundedBorder)
+                    TextField("Command", text: $spawnCommand)
+                        .textFieldStyle(.roundedBorder)
+                }
+                Button("Spawn Session") {
+                    Task {
+                        let generated = spawnName.isEmpty ? "agent-\(Int(Date().timeIntervalSince1970))" : spawnName
+                        actionOutput = await client.spawn(
+                            sessionName: generated,
+                            project: selectedProject.isEmpty ? nil : selectedProject,
+                            command: spawnCommand
+                        )
+                    }
+                }
+                .buttonStyle(.bordered)
+                .disabled(!client.capabilities.spawn || spawnCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || client.panicMode)
+
+                Divider()
+                TextField("Snapshot name", text: $snapshotName)
+                    .textFieldStyle(.roundedBorder)
+                TextEditor(text: $snapshotText)
+                    .font(.system(size: 11, design: .monospaced))
+                    .frame(height: 68)
+                    .scrollContentBackground(.hidden)
+                    .background(Color.black.opacity(0.18))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                Button("Ingest Snapshot") {
+                    Task {
+                        actionOutput = await client.snapshotIngest(name: snapshotName, text: snapshotText)
+                        snapshotText = ""
+                    }
+                }
+                .buttonStyle(.bordered)
+                .disabled(!client.capabilities.snapshotIngest || snapshotName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || snapshotText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || client.panicMode)
+
+                if !actionOutput.isEmpty {
+                    Text(actionOutput)
+                        .font(.system(size: 10, design: .monospaced))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(6)
+                        .background(Color.black.opacity(0.2))
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                }
+            }
+
             GlassCard(title: "Demo Projects") {
                 ScrollView {
                     VStack(spacing: 8) {
@@ -568,6 +771,36 @@ struct DashboardView: View {
                     }
                 }
             }
+            GlassCard(title: "GitHub Project Links") {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 8) {
+                        ForEach(client.state?.projects ?? []) { project in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(project.path)
+                                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                if let url = ProjectRegistry.githubURL(for: project.path) {
+                                    Text(url.absoluteString)
+                                        .font(.system(size: 10, design: .monospaced))
+                                        .foregroundStyle(.secondary)
+                                    HStack {
+                                        Button("Open Repo") { openURL(url) }
+                                            .buttonStyle(.bordered)
+                                        Button("Copy URL") { copyToClipboard(url.absoluteString) }
+                                            .buttonStyle(.bordered)
+                                    }
+                                } else {
+                                    Text("No repo mapping")
+                                        .font(.system(size: 10, design: .monospaced))
+                                        .foregroundStyle(.yellow)
+                                }
+                            }
+                            .padding(8)
+                            .background(Color.black.opacity(0.2))
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                        }
+                    }
+                }
+            }
 
             GlassCard(title: "Pane Grid") {
                 ScrollView {
@@ -584,6 +817,27 @@ struct DashboardView: View {
                             .padding(8)
                             .background(Color.black.opacity(0.2))
                             .clipShape(RoundedRectangle(cornerRadius: 8))
+                        }
+                    }
+                }
+            }
+            GlassCard(title: "Node API Fluency") {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 6) {
+                        ForEach(topNodeFluencyKeys, id: \.self) { key in
+                            if let stat = client.apiStatsByNodeRoute[key] {
+                                Text("\(key) -> \(stat.fluency)% (\(stat.success)/\(stat.total))")
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(6)
+                                    .background(Color.black.opacity(0.2))
+                                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                            }
+                        }
+                        if topNodeFluencyKeys.isEmpty {
+                            Text("(no node-level API stats yet)")
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -611,13 +865,68 @@ struct DashboardView: View {
                     }
                 }
             }
+            GlassCard(title: "Action Log") {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 6) {
+                        ForEach(Array(client.actionLog.prefix(30).enumerated()), id: \.offset) { _, line in
+                            Text(line)
+                                .font(.system(size: 10, design: .monospaced))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(6)
+                                .background(Color.black.opacity(0.2))
+                                .clipShape(RoundedRectangle(cornerRadius: 6))
+                        }
+                        if client.actionLog.isEmpty {
+                            Text("(no actions logged yet)")
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
         }
-        .frame(maxWidth: 360)
+        .frame(maxWidth: compact ? .infinity : 360)
     }
 
     private var statusLine: String {
         guard let vibe = client.state?.vibe else { return "pipeline: unknown" }
         return "pipeline: \(vibe.pipelineStatus) | build: \(vibe.buildLatency) | dev: \(vibe.developerState)"
+    }
+
+    private var filteredCandidates: [PaneInfo] {
+        let all = client.state?.takeoverCandidates ?? []
+        let q = targetFilter.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !q.isEmpty else { return all }
+        return all.filter { pane in
+            pane.target.lowercased().contains(q) ||
+            pane.command.lowercased().contains(q) ||
+            pane.authRituals.joined(separator: ",").lowercased().contains(q)
+        }
+    }
+
+    private var autopilotReady: Bool {
+        !client.panicMode && client.capabilities.autopilot && client.capabilities.smoke
+    }
+
+    private var topNodeFluencyKeys: [String] {
+        client.apiStatsByNodeRoute
+            .sorted { lhs, rhs in
+                if lhs.value.fluency != rhs.value.fluency { return lhs.value.fluency > rhs.value.fluency }
+                return lhs.key < rhs.key
+            }
+            .map(\.key)
+            .prefix(24)
+            .map { $0 }
+    }
+
+    private var autopilotDisabledReason: String {
+        if client.panicMode {
+            return "Panic freeze is active. Resume to allow actions."
+        }
+        if !client.capabilities.autopilot || !client.capabilities.smoke {
+            return "Remote API is missing required endpoints (/api/autopilot/run and /api/smoke)."
+        }
+        return ""
     }
 
     private var modeHelp: String {
@@ -650,6 +959,24 @@ struct DashboardView: View {
             }
         }
     }
+
+    private func capabilityLine(_ name: String, _ ok: Bool) -> some View {
+        HStack {
+            Text(name).font(.system(size: 10, design: .monospaced))
+            Spacer()
+            Text(ok ? "ok" : "missing")
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(ok ? .green : .yellow)
+        }
+    }
+
+    private func quickPromptButton(_ label: String, _ prompt: String) -> some View {
+        Button(label) {
+            autopilotPrompt = prompt
+        }
+        .buttonStyle(.bordered)
+        .font(.system(size: 10, design: .monospaced))
+    }
 }
 
 private struct GlassCard<Content: View>: View {
@@ -666,11 +993,18 @@ private struct GlassCard<Content: View>: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(.ultraThinMaterial.opacity(0.55))
+        .background(
+            LinearGradient(
+                colors: [Color.white.opacity(0.12), Color.white.opacity(0.05)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 16)
                 .stroke(Color.white.opacity(0.12), lineWidth: 1)
         )
+        .shadow(color: .black.opacity(0.25), radius: 14, y: 8)
     }
 }

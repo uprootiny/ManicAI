@@ -18,12 +18,19 @@ final class PanelClient: ObservableObject {
     @Published var actionsInCurrentScope: Int = 0
     @Published var agitationScore: Int = 0
     @Published var lastDelta: String = ""
+    @Published var actionLog: [String] = []
+    @Published var capabilities = APICapabilities()
+    @Published var isRefreshing: Bool = false
+    @Published var apiStatsByRoute: [String: APICallStats] = [:]
+    @Published var apiStatsByNodeRoute: [String: APICallStats] = [:]
     @Published var panicMode: Bool = false
     @Published var panicReason: String = ""
     @Published var laneByTarget: [String: LanePriority] = [:]
     @Published var throttleByTarget: [String: SessionThrottle] = [:]
     private var lastAutopilotAt: Date?
     private var lastAutopilotAtByTarget: [String: Date] = [:]
+    private var refreshQueued: Bool = false
+    private var lastCapabilityScanAt: Date?
     private var consecutiveErrors: Int = 0
     private var previousCandidateCount: Int = 0
     private var previousSmokeStatus: String = "unknown"
@@ -31,6 +38,7 @@ final class PanelClient: ObservableObject {
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
     private let session: URLSession
+    private static let logFormatter = ISO8601DateFormatter()
 
     var baseURL: URL {
         didSet { UserDefaults.standard.set(baseURL.absoluteString, forKey: "manicai.baseURL") }
@@ -66,6 +74,11 @@ final class PanelClient: ObservableObject {
     }
 
     func refresh() async {
+        if isRefreshing {
+            refreshQueued = true
+            return
+        }
+        isRefreshing = true
         do {
             let url = pathURL("api/state")
             let (data, response) = try await session.data(from: url)
@@ -74,11 +87,22 @@ final class PanelClient: ObservableObject {
             error = nil
             consecutiveErrors = 0
             lastAction = "Refreshed \(baseURL.host ?? "unknown")"
+            log("refresh ok: \(baseURL.absoluteString)")
+            if shouldScanCapabilities() {
+                await detectCapabilities()
+                lastCapabilityScanAt = Date()
+            }
             computeDelta()
             recomputeInteractionHealth()
         } catch {
             consecutiveErrors += 1
             self.error = "Refresh failed: \(error.localizedDescription)"
+            log("refresh failed: \(error.localizedDescription)")
+        }
+        isRefreshing = false
+        if refreshQueued {
+            refreshQueued = false
+            await refresh()
         }
     }
 
@@ -123,10 +147,14 @@ final class PanelClient: ObservableObject {
             lastAutopilotAt = Date()
             actionsInCurrentScope += 1
             lastAction = "Autopilot OK (\(selectedProject ?? "no-project")) \(payload.prefix(180))"
+            log("autopilot ok: \(payload.prefix(120))")
+            markRoute("autopilot/run", ok: true)
             await refresh()
         } catch {
             consecutiveErrors += 1
             self.error = "Autopilot failed: \(error.localizedDescription)"
+            log("autopilot failed: \(error.localizedDescription)")
+            markRoute("autopilot/run", ok: false)
         }
     }
 
@@ -199,14 +227,69 @@ final class PanelClient: ObservableObject {
             lastAction = "Smoke executed for \(selectedProject)"
             cycleJournal.insert("smoke[\(selectedProject)]: \(text.prefix(160))", at: 0)
             actionsInCurrentScope += 1
+            log("smoke ok[\(selectedProject)]: \(text.prefix(120))")
+            markRoute("smoke", ok: true)
             await refresh()
             return text
         } catch {
             consecutiveErrors += 1
             self.error = "Smoke failed: \(error.localizedDescription)"
             cycleJournal.insert("smoke-failed[\(selectedProject)]: \(error.localizedDescription)", at: 0)
+            log("smoke failed[\(selectedProject)]: \(error.localizedDescription)")
+            markRoute("smoke", ok: false)
             return "error"
         }
+    }
+
+    func queueAdd(prompt: String, project: String?, sessionID: String?) async -> String {
+        let payload: [String: Any] = [
+            "prompt": prompt,
+            "project": project ?? "",
+            "session_id": sessionID ?? ""
+        ]
+        return await mutate(path: "api/queue/add", payload: payload, action: "queue/add")
+    }
+
+    func queueRun(project: String?, sessionID: String?) async -> String {
+        let payload: [String: Any] = [
+            "project": project ?? "",
+            "session_id": sessionID ?? ""
+        ]
+        return await mutate(path: "api/queue/run", payload: payload, action: "queue/run")
+    }
+
+    func paneSend(target: String, text: String, enter: Bool = true) async -> String {
+        let payload: [String: Any] = [
+            "target": target,
+            "text": text,
+            "enter": enter
+        ]
+        return await mutate(path: "api/pane/send", payload: payload, action: "pane/send", nodeHint: target)
+    }
+
+    func nudge(sessionID: String, text: String) async -> String {
+        let payload: [String: Any] = [
+            "session_id": sessionID,
+            "text": text
+        ]
+        return await mutate(path: "api/nudge", payload: payload, action: "nudge", nodeHint: sessionID)
+    }
+
+    func snapshotIngest(name: String, text: String) async -> String {
+        let payload: [String: Any] = [
+            "name": name,
+            "text": text
+        ]
+        return await mutate(path: "api/snapshot/ingest", payload: payload, action: "snapshot/ingest")
+    }
+
+    func spawn(sessionName: String, project: String?, command: String) async -> String {
+        let payload: [String: Any] = [
+            "session_name": sessionName,
+            "project": project ?? "",
+            "command": command
+        ]
+        return await mutate(path: "api/spawn", payload: payload, action: "spawn", nodeHint: sessionName)
     }
 
     func runHealthyCycle(prompt: String, project: String?, autoApprove: Bool) async {
@@ -311,9 +394,11 @@ final class PanelClient: ObservableObject {
     func setBaseURL(_ text: String) {
         guard let url = URL(string: text), url.scheme != nil, url.host != nil else {
             error = "Invalid URL: \(text)"
+            log("invalid url: \(text)")
             return
         }
         baseURL = url
+        log("endpoint set: \(url.absoluteString)")
     }
 
     func choosePreset(_ preset: String) {
@@ -338,9 +423,11 @@ final class PanelClient: ObservableObject {
         if let best {
             baseURL = best.baseURL
             lastAction = "Selected \(best.baseURL.absoluteString)"
+            log("endpoint auto-selected: \(best.baseURL.absoluteString)")
             await refresh()
         } else {
             error = "No reachable API surface discovered"
+            log("recon failed: no reachable api surface")
         }
     }
 
@@ -419,6 +506,101 @@ final class PanelClient: ObservableObject {
         guard (200..<300).contains(http.statusCode) else {
             throw URLError(.badServerResponse)
         }
+    }
+
+    private func detectCapabilities() async {
+        capabilities.state = await endpointOKGet("api/state")
+        let routes = await fetchRouteHints()
+        capabilities.autopilot = routes.contains("/api/autopilot/run")
+        capabilities.smoke = routes.contains("/api/smoke")
+        capabilities.paneSend = routes.contains("/api/pane/send")
+        capabilities.queue = routes.contains("/api/queue/add")
+        capabilities.queueRun = routes.contains("/api/queue/run")
+        capabilities.spawn = routes.contains("/api/spawn")
+        capabilities.nudge = routes.contains("/api/nudge")
+        capabilities.snapshotIngest = routes.contains("/api/snapshot/ingest")
+    }
+
+    private func endpointOKGet(_ path: String) async -> Bool {
+        do {
+            let (_, response) = try await session.data(from: pathURL(path))
+            if let http = response as? HTTPURLResponse {
+                return (200..<300).contains(http.statusCode)
+            }
+            return false
+        } catch {
+            return false
+        }
+    }
+
+    private func fetchRouteHints() async -> Set<String> {
+        do {
+            let (data, response) = try await session.data(from: pathURL(""))
+            if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+                return []
+            }
+            let html = String(data: data, encoding: .utf8) ?? ""
+            var hits: Set<String> = []
+            let known = ["/api/autopilot/run", "/api/smoke", "/api/pane/send", "/api/queue/add", "/api/queue/run", "/api/spawn", "/api/nudge", "/api/snapshot/ingest"]
+            for route in known where html.contains(route) {
+                hits.insert(route)
+            }
+            return hits
+        } catch {
+            return []
+        }
+    }
+
+    private func log(_ message: String) {
+        let ts = Self.logFormatter.string(from: Date())
+        actionLog.insert("[\(ts)] \(message)", at: 0)
+        if actionLog.count > 80 { actionLog = Array(actionLog.prefix(80)) }
+    }
+
+    private func mutate(path: String, payload: [String: Any], action: String, nodeHint: String? = nil) async -> String {
+        if panicMode {
+            self.error = "Panic mode active. Mutations blocked."
+            return "panic-blocked"
+        }
+        do {
+            let data = try JSONSerialization.data(withJSONObject: payload)
+            var req = URLRequest(url: pathURL(path))
+            req.httpMethod = "POST"
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.httpBody = data
+            let (respData, response) = try await session.data(for: req)
+            try assertHTTP(response)
+            let text = String(data: respData, encoding: .utf8) ?? ""
+            lastAction = "\(action) ok"
+            log("\(action) ok: \(text.prefix(140))")
+            markRoute(action, ok: true, nodeHint: nodeHint)
+            await refresh()
+            return text
+        } catch {
+            let msg = "\(action) failed: \(error.localizedDescription)"
+            self.error = msg
+            log(msg)
+            markRoute(action, ok: false, nodeHint: nodeHint)
+            return msg
+        }
+    }
+
+    private func markRoute(_ route: String, ok: Bool, nodeHint: String? = nil) {
+        var global = apiStatsByRoute[route] ?? APICallStats()
+        if ok { global.success += 1 } else { global.failure += 1 }
+        apiStatsByRoute[route] = global
+
+        if let nodeHint, !nodeHint.isEmpty {
+            let key = "\(nodeHint)|\(route)"
+            var scoped = apiStatsByNodeRoute[key] ?? APICallStats()
+            if ok { scoped.success += 1 } else { scoped.failure += 1 }
+            apiStatsByNodeRoute[key] = scoped
+        }
+    }
+
+    private func shouldScanCapabilities() -> Bool {
+        guard let last = lastCapabilityScanAt else { return true }
+        return Date().timeIntervalSince(last) > 30
     }
 
     private func recomputeInteractionHealth() {

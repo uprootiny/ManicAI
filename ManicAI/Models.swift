@@ -170,3 +170,26 @@ struct SessionThrottle {
     var delayMs: Double?
     var enabled: Bool = true
 }
+
+struct APICapabilities {
+    var state: Bool = false
+    var autopilot: Bool = false
+    var smoke: Bool = false
+    var paneSend: Bool = false
+    var queue: Bool = false
+    var queueRun: Bool = false
+    var spawn: Bool = false
+    var nudge: Bool = false
+    var snapshotIngest: Bool = false
+}
+
+struct APICallStats {
+    var success: Int = 0
+    var failure: Int = 0
+
+    var total: Int { success + failure }
+    var fluency: Int {
+        guard total > 0 else { return 0 }
+        return Int((Double(success) / Double(total) * 100).rounded())
+    }
+}
