@@ -34,6 +34,20 @@ Derived from the existing macOS build pipeline patterns in `uprootiny/Flycut`, a
 - DMG/ZIP artifact packaging
   - ZIP via `ditto --sequesterRsrc --keepParent` to preserve app bundle metadata
 
+### Gatekeeper-safe artifacts (sign + notarize)
+
+The workflow can now produce notarized artifacts when these repo secrets are configured:
+
+- `APPLE_DEVELOPER_ID_APP_CERT_BASE64` (base64 `.p12` for Developer ID Application cert)
+- `APPLE_DEVELOPER_ID_APP_CERT_PASSWORD`
+- `APPLE_KEYCHAIN_PASSWORD` (optional; fallback temp value used if omitted)
+- `APPLE_NOTARY_KEY_ID`
+- `APPLE_NOTARY_ISSUER_ID`
+- `APPLE_NOTARY_API_KEY_BASE64` (base64 App Store Connect API key `.p8`)
+
+When secrets are present, CI uploads additional artifacts suffixed with `-notarized`.
+If secrets are missing, CI still uploads unsigned artifacts (which trigger the macOS "cannot verify malware" warning).
+
 ## OnyX-inspired operating model
 
 - `Verify`: inspect only, no interventions
