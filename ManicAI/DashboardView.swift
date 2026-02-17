@@ -881,6 +881,38 @@ struct DashboardView: View {
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(.secondary)
             }
+            GlassCard(title: "Layer Graph") {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 6) {
+                        ForEach(Array(client.layerEdges.prefix(24))) { e in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("\(e.from.rawValue) -> \(e.to.rawValue) | n=\(e.count) | lat=\(String(format: "%.1f", e.avgLatencySec))s | q=\(String(format: "%.1f", e.avgQuality))")
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundStyle(.mint)
+                                HStack {
+                                    flowBar("quality", value: Int(e.avgQuality.rounded()), total: 100, color: .cyan)
+                                        .frame(maxWidth: 220)
+                                    Spacer()
+                                    Button("Replay Edge") {
+                                        Task {
+                                            actionOutput = await client.replayLayerEdge(e, target: replayTarget.isEmpty ? paneTarget : replayTarget)
+                                        }
+                                    }
+                                    .buttonStyle(.bordered)
+                                }
+                            }
+                            .padding(6)
+                            .background(Color.black.opacity(0.2))
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                        }
+                        if client.layerEdges.isEmpty {
+                            Text("(no layer edges yet)")
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
             GlassCard(title: "Profile Layers") {
                 let layers = sessionProfileLayers
                 ScrollView {

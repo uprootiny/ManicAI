@@ -52,4 +52,18 @@ final class TimelineEngineTests: XCTestCase {
         let ev = try JSONDecoder().decode(PromptEvent.self, from: json)
         XCTAssertEqual(ev.kind, .ontology)
     }
+
+    func testLayerEdgesAndQuality() {
+        let events = [
+            PromptEvent(id: UUID(), ts: 1, route: "a", target: "t", prompt: "p", kind: .duplex),
+            PromptEvent(id: UUID(), ts: 5, route: "b", target: "t", prompt: "p", kind: .service),
+            PromptEvent(id: UUID(), ts: 15, route: "c", target: "t", prompt: "p", kind: .ontology),
+            PromptEvent(id: UUID(), ts: 25, route: "d", target: "t", prompt: "p", kind: .git)
+        ]
+        let edges = TimelineEngine.layerEdges(events)
+        XCTAssertFalse(edges.isEmpty)
+        XCTAssertTrue(edges.contains(where: { $0.from == .duplex && $0.to == .service }))
+        let q = TimelineEngine.edgeQuality(from: .duplex, to: .service, latencySec: 5)
+        XCTAssertGreaterThanOrEqual(q, 80)
+    }
 }

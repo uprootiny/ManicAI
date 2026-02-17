@@ -270,3 +270,12 @@ enum TimelineKind: String, Codable, CaseIterable {
     case file
     case service
 }
+
+struct LayerEdgeMetric: Identifiable {
+    var id: String { "\(from.rawValue)->\(to.rawValue)" }
+    let from: TimelineKind
+    let to: TimelineKind
+    let count: Int
+    let avgLatencySec: Double
+    let avgQuality: Double
+}

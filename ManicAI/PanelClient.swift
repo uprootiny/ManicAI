@@ -46,6 +46,7 @@ final class PanelClient: ObservableObject {
     @Published var cadenceReport: String = ""
     @Published var promptHistoryPath: String = ""
     @Published var cadenceReportPath: String = ""
+    @Published var layerEdges: [LayerEdgeMetric] = []
     private var lastAutopilotAt: Date?
     private var lastAutopilotAtByTarget: [String: Date] = [:]
     private var refreshQueued: Bool = false
@@ -771,6 +772,7 @@ final class PanelClient: ObservableObject {
         guard !ids.isEmpty else { return }
         promptHistory.removeAll { ids.contains($0.id) }
         cadenceReport = generateCadenceReport()
+        recomputeLayerEdges()
         persistTelemetryMemory()
         lastAction = "Deleted \(ids.count) prompt events"
     }
@@ -793,8 +795,27 @@ final class PanelClient: ObservableObject {
             promptHistory.removeFirst(promptHistory.count - 1000)
         }
         cadenceReport = generateCadenceReport()
+        recomputeLayerEdges()
         persistTelemetryMemory()
         lastAction = "Pasted \(clean.count) clip lines into \(target ?? "-")"
+    }
+
+    func replayLayerEdge(_ edge: LayerEdgeMetric, target: String?) async -> String {
+        let events = TimelineEngine.sortedEvents(promptHistory)
+        guard events.count > 1 else { return "no history for edge replay" }
+        var candidate: PromptEvent?
+        var previous: PromptEvent?
+        for (cur, prev) in zip(events.dropFirst(), events) {
+            if prev.kind == edge.from && cur.kind == edge.to {
+                candidate = cur
+                previous = prev
+            }
+        }
+        guard let ev = candidate else { return "no matching edge instance found" }
+        let t = (target?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? target! : (ev.target ?? previous?.target ?? ""))
+        if t.isEmpty { return "no target available for replay" }
+        let msg = "[edge \(edge.from.rawValue)->\(edge.to.rawValue)] \(ev.prompt)"
+        return await paneSend(target: t, text: msg, enter: true)
     }
 
     private func loadTelemetryMemory() {
@@ -826,6 +847,7 @@ final class PanelClient: ObservableObject {
             promptHistory = Array(decoded.suffix(400))
         }
         cadenceReport = generateCadenceReport()
+        recomputeLayerEdges()
         telemetryLoadedAt = now
         persistTelemetryMemory()
     }
@@ -1107,6 +1129,7 @@ final class PanelClient: ObservableObject {
             promptHistory.removeFirst(promptHistory.count - 1000)
         }
         cadenceReport = generateCadenceReport()
+        recomputeLayerEdges()
         persistTelemetryMemory()
     }
 
@@ -1125,6 +1148,7 @@ final class PanelClient: ObservableObject {
             promptHistory.removeFirst(promptHistory.count - 1000)
         }
         cadenceReport = generateCadenceReport()
+        recomputeLayerEdges()
         persistTelemetryMemory()
     }
 
@@ -1177,6 +1201,10 @@ final class PanelClient: ObservableObject {
             }
         }
         return Array(Set(out)).sorted()
+    }
+
+    private func recomputeLayerEdges() {
+        layerEdges = TimelineEngine.layerEdges(promptHistory)
     }
 
     private func generateCadenceReport() -> String {
