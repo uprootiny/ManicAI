@@ -17,13 +17,11 @@ jobs:
             xcode: latest-stable
             deployment: "15.0"
             artifact_suffix: tahoe-compat
-            legacy_compat: false
-          - id: legacy-10-11
+          - id: intel-baseline
             runner: macos-15-intel
             xcode: latest-stable
-            deployment: "10.11"
-            artifact_suffix: legacy-10_11
-            legacy_compat: true
+            deployment: "13.0"
+            artifact_suffix: intel-13_0
 
     runs-on: ${{ matrix.target.runner }}
 
@@ -45,17 +43,6 @@ jobs:
         run: |
           brew update
           brew install xcodegen
-
-      - name: Legacy deployment compatibility
-        if: matrix.target.legacy_compat == true
-        run: |
-          XCODE_PATH=$(xcode-select -p)
-          ARC_DIR="$XCODE_PATH/Toolchains/XcodeDefault.xctoolchain/usr/lib/arc"
-          sudo mkdir -p "$ARC_DIR"
-          curl -L -o /tmp/libarclite_macosx.a \
-            "https://github.com/kamyarelyasi/Libarclite-Files/raw/main/libarclite_macosx.a"
-          sudo cp /tmp/libarclite_macosx.a "$ARC_DIR/"
-          ls -la "$ARC_DIR"
 
       - name: Generate project
         run: |

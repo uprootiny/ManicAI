@@ -12,7 +12,7 @@ A styled macOS operator app for agent-heavy development environments.
 ## Run locally (macOS)
 
 ```bash
-cd apps/ManicAI
+cd /path/to/ManicAI
 brew install xcodegen
 xcodegen generate
 open ManicAI.xcodeproj
@@ -20,13 +20,13 @@ open ManicAI.xcodeproj
 
 ## CI/CD
 
-Workflow: `.github/workflows/manicai-macos.yml`
+Workflow: `.github/workflows/build-macos.yml`
 
 Derived from the existing macOS build pipeline patterns in `uprootiny/Flycut`, adapted for:
 
 - dual target matrix:
-  - `tahoe-beta` on `macos-26`
-  - `legacy-10-11` on `macos-15-intel` with `MACOSX_DEPLOYMENT_TARGET=10.11`
+  - `tahoe-compat` on `macos-15` with `MACOSX_DEPLOYMENT_TARGET=15.0`
+  - `intel-baseline` on `macos-15-intel` with `MACOSX_DEPLOYMENT_TARGET=13.0`
 - SwiftUI app build + unit tests
 - unsigned build on GitHub macOS runners
 - DMG/ZIP artifact packaging
