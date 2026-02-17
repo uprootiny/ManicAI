@@ -33,6 +33,8 @@ final class PanelClient: ObservableObject {
     @Published var fallbackFluencyThreshold: Int = 45
     @Published var schedulerNotes: [String] = []
     @Published var commutationPreview: [CommutationPlanStep] = []
+    @Published var telemetryHalfLifeHours: Int = 24
+    @Published var telemetryLoadedAt: Date?
     private var lastAutopilotAt: Date?
     private var lastAutopilotAtByTarget: [String: Date] = [:]
     private var refreshQueued: Bool = false
@@ -45,6 +47,10 @@ final class PanelClient: ObservableObject {
     private let encoder = JSONEncoder()
     private let session: URLSession
     private static let logFormatter = ISO8601DateFormatter()
+    private static let routeStatsKey = "manicai.telemetry.routeStats.v1"
+    private static let nodeStatsKey = "manicai.telemetry.nodeStats.v1"
+    private static let actionLogKey = "manicai.telemetry.actionLog.v1"
+    private static let schedulerNotesKey = "manicai.telemetry.schedulerNotes.v1"
 
     var baseURL: URL {
         didSet { UserDefaults.standard.set(baseURL.absoluteString, forKey: "manicai.baseURL") }
@@ -77,6 +83,10 @@ final class PanelClient: ObservableObject {
         if let fanout = UserDefaults.standard.object(forKey: "manicai.fanoutPerCycle") as? Int {
             fanoutPerCycle = fanout
         }
+        if let hl = UserDefaults.standard.object(forKey: "manicai.telemetry.halfLifeHours") as? Int {
+            telemetryHalfLifeHours = max(1, hl)
+        }
+        loadTelemetryMemory()
     }
 
     func refresh() async {
@@ -591,12 +601,14 @@ final class PanelClient: ObservableObject {
         let ts = Self.logFormatter.string(from: Date())
         actionLog.insert("[\(ts)] \(message)", at: 0)
         if actionLog.count > 80 { actionLog = Array(actionLog.prefix(80)) }
+        persistTelemetryMemory()
     }
 
     private func noteScheduler(_ message: String) {
         let ts = Self.logFormatter.string(from: Date())
         schedulerNotes.insert("[\(ts)] \(message)", at: 0)
         if schedulerNotes.count > 80 { schedulerNotes = Array(schedulerNotes.prefix(80)) }
+        persistTelemetryMemory()
     }
 
     private func mutate(path: String, payload: [String: Any], action: String, nodeHint: String? = nil) async -> String {
@@ -637,6 +649,72 @@ final class PanelClient: ObservableObject {
             var scoped = apiStatsByNodeRoute[key] ?? APICallStats()
             if ok { scoped.success += 1 } else { scoped.failure += 1 }
             apiStatsByNodeRoute[key] = scoped
+        }
+        persistTelemetryMemory()
+    }
+
+    func setTelemetryHalfLifeHours(_ hours: Int) {
+        telemetryHalfLifeHours = max(1, hours)
+        UserDefaults.standard.set(telemetryHalfLifeHours, forKey: "manicai.telemetry.halfLifeHours")
+        loadTelemetryMemory()
+    }
+
+    func clearTelemetryMemory() {
+        apiStatsByRoute = [:]
+        apiStatsByNodeRoute = [:]
+        actionLog = []
+        schedulerNotes = []
+        UserDefaults.standard.removeObject(forKey: Self.routeStatsKey)
+        UserDefaults.standard.removeObject(forKey: Self.nodeStatsKey)
+        UserDefaults.standard.removeObject(forKey: Self.actionLogKey)
+        UserDefaults.standard.removeObject(forKey: Self.schedulerNotesKey)
+        telemetryLoadedAt = Date()
+        lastAction = "Telemetry memory cleared"
+    }
+
+    private func loadTelemetryMemory() {
+        let now = Date()
+        let halfLifeSec = TimeInterval(telemetryHalfLifeHours) * 3600
+
+        if let data = UserDefaults.standard.data(forKey: Self.routeStatsKey),
+           let decoded = try? decoder.decode([String: StoredAPICallStats].self, from: data) {
+            let decayed = TelemetryMemory.applyDecay(to: decoded, now: now, halfLifeSec: halfLifeSec)
+            apiStatsByRoute = decayed.mapValues { APICallStats(success: $0.success, failure: $0.failure) }
+        }
+
+        if let data = UserDefaults.standard.data(forKey: Self.nodeStatsKey),
+           let decoded = try? decoder.decode([String: StoredAPICallStats].self, from: data) {
+            let decayed = TelemetryMemory.applyDecay(to: decoded, now: now, halfLifeSec: halfLifeSec)
+            apiStatsByNodeRoute = decayed.mapValues { APICallStats(success: $0.success, failure: $0.failure) }
+        }
+
+        if let data = UserDefaults.standard.data(forKey: Self.actionLogKey),
+           let decoded = try? decoder.decode([String].self, from: data) {
+            actionLog = Array(decoded.prefix(80))
+        }
+        if let data = UserDefaults.standard.data(forKey: Self.schedulerNotesKey),
+           let decoded = try? decoder.decode([String].self, from: data) {
+            schedulerNotes = Array(decoded.prefix(80))
+        }
+        telemetryLoadedAt = now
+        persistTelemetryMemory()
+    }
+
+    private func persistTelemetryMemory() {
+        let now = Date().timeIntervalSince1970
+        let routeStored = apiStatsByRoute.mapValues { StoredAPICallStats(success: $0.success, failure: $0.failure, updatedAt: now) }
+        let nodeStored = apiStatsByNodeRoute.mapValues { StoredAPICallStats(success: $0.success, failure: $0.failure, updatedAt: now) }
+        if let data = try? encoder.encode(routeStored) {
+            UserDefaults.standard.set(data, forKey: Self.routeStatsKey)
+        }
+        if let data = try? encoder.encode(nodeStored) {
+            UserDefaults.standard.set(data, forKey: Self.nodeStatsKey)
+        }
+        if let data = try? encoder.encode(Array(actionLog.prefix(80))) {
+            UserDefaults.standard.set(data, forKey: Self.actionLogKey)
+        }
+        if let data = try? encoder.encode(Array(schedulerNotes.prefix(80))) {
+            UserDefaults.standard.set(data, forKey: Self.schedulerNotesKey)
         }
     }
 

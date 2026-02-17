@@ -70,6 +70,13 @@ struct DashboardView: View {
         }
     }
 
+    enum SystemProfile: String, CaseIterable, Identifiable {
+        case llmDuplex = "LLM Duplex"
+        case architected = "Architected"
+        case hybrid = "Hybrid"
+        var id: String { rawValue }
+    }
+
     @StateObject private var client = PanelClient()
     @State private var autopilotPrompt = "run smoke checks, fix first blocker, rerun smoke, report concise status"
     @State private var opsMode: OpsMode = .verify
@@ -87,6 +94,7 @@ struct DashboardView: View {
     @State private var scopeDone = ""
     @State private var scopeIntent = ""
     @State private var targetFilter = ""
+    @State private var systemProfile: SystemProfile = .hybrid
     @State private var queuePrompt = ""
     @State private var queueSessionID = ""
     @State private var nudgeSessionID = ""
@@ -475,6 +483,53 @@ struct DashboardView: View {
                 .disabled(client.panicMode)
                 Button("Preview Commutation Plan") {
                     client.commutationPreview = client.buildCommutationPlan(route: "autopilot/run")
+                }
+                .buttonStyle(.bordered)
+            }
+            GlassCard(title: "System Profile") {
+                Picker("Profile", selection: $systemProfile) {
+                    ForEach(SystemProfile.allCases) { p in
+                        Text(p.rawValue).tag(p)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                Text(profileGuidance)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.secondary)
+
+                HStack {
+                    Button("Apply Diagnose Profile") {
+                        autopilotPrompt = diagnosePromptForProfile(systemProfile)
+                        cadenceProfile = systemProfile == .llmDuplex ? .stabilize : .deepwork
+                        client.setTelemetryHalfLifeHours(systemProfile == .llmDuplex ? 12 : 36)
+                    }
+                    .buttonStyle(.bordered)
+                    Button("Apply Drive Profile") {
+                        autopilotPrompt = drivePromptForProfile(systemProfile)
+                        cadenceProfile = systemProfile == .architected ? .throughput : .stabilize
+                        client.enableFallbackRouting = systemProfile != .architected
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            }
+            GlassCard(title: "Telemetry Memory") {
+                HStack {
+                    Text("Half-life")
+                    Spacer()
+                    Text("\(client.telemetryHalfLifeHours)h")
+                }
+                Slider(value: Binding(
+                    get: { Double(client.telemetryHalfLifeHours) },
+                    set: { client.setTelemetryHalfLifeHours(Int($0.rounded())) }
+                ), in: 4...96, step: 1)
+                if let ts = client.telemetryLoadedAt {
+                    Text("loaded: \(ts.formatted(date: .omitted, time: .standard))")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+                Button("Clear Telemetry Memory") {
+                    client.clearTelemetryMemory()
                 }
                 .buttonStyle(.bordered)
             }
@@ -1003,6 +1058,39 @@ struct DashboardView: View {
             return "Plan pass: classify blockers and suggest safe next move."
         case .act:
             return "Act pass: guarded autopilot + smoke feedback loop."
+        }
+    }
+
+    private var profileGuidance: String {
+        switch systemProfile {
+        case .llmDuplex:
+            return "Prioritize drift detection, repetition collapse, and short feedback loops."
+        case .architected:
+            return "Prioritize API contract health, stage isolation, and deterministic smoke gates."
+        case .hybrid:
+            return "Balance conversation drift controls with strict runbook/smoke execution."
+        }
+    }
+
+    private func diagnosePromptForProfile(_ p: SystemProfile) -> String {
+        switch p {
+        case .llmDuplex:
+            return "classify drift loops, repeated intents, and approval stalls; propose one bounded correction"
+        case .architected:
+            return "validate contracts and failing stages only; identify first deterministic blocker"
+        case .hybrid:
+            return "diagnose both drift and failing smoke gates; rank by user attention cost"
+        }
+    }
+
+    private func drivePromptForProfile(_ p: SystemProfile) -> String {
+        switch p {
+        case .llmDuplex:
+            return "inject concise corrective prompt, run smoke checks, report delta and halt"
+        case .architected:
+            return "fix first failing smoke step, rerun smoke, emit patch-ready summary"
+        case .hybrid:
+            return "run smoke checks, fix first blocker, rerun smoke, summarize blocker delta"
         }
     }
 

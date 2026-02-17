@@ -44,3 +44,23 @@
 - Fallback strategy:
   - when node fluency is below threshold or autopilot/smoke routes are unavailable:
     - route action as `pane/send` followed by `smoke`
+
+## Persistent telemetry memory
+- Persisted across app restarts:
+  - global route stats
+  - node-route stats
+  - action log
+  - scheduler notes
+- Decay model:
+  - half-life based attenuation (`4h..96h` in UI)
+  - keeps recent behavior dominant while preserving continuity
+
+## Diagnostic profiles
+- `LLM Duplex`:
+  - diagnose drift loops, repeated prompts, and approval stalls
+  - short cadence, shorter telemetry half-life
+- `Architected`:
+  - diagnose contract breaks, deterministic stage failures, and smoke regressions
+  - stronger throughput cadence, less fallback
+- `Hybrid`:
+  - blend drift controls with contract/smoke-first execution

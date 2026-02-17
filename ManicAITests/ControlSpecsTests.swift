@@ -80,4 +80,14 @@ final class ControlSpecsTests: XCTestCase {
         XCTAssertEqual(plan.count, 1)
         XCTAssertEqual(plan[0].strategy, .paneSmokeFallback)
     }
+
+    func testTelemetryDecayHalfLife() {
+        let now = Date(timeIntervalSince1970: 2_000_000)
+        let input = [
+            "k": StoredAPICallStats(success: 8, failure: 4, updatedAt: now.timeIntervalSince1970 - 3600)
+        ]
+        let out = TelemetryMemory.applyDecay(to: input, now: now, halfLifeSec: 3600)
+        XCTAssertEqual(out["k"]?.success, 4)
+        XCTAssertEqual(out["k"]?.failure, 2)
+    }
 }
