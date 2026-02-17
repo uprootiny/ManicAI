@@ -77,6 +77,13 @@ struct DashboardView: View {
         var id: String { rawValue }
     }
 
+    enum PatternScale: String, CaseIterable, Identifiable {
+        case micro = "Micro"
+        case meso = "Meso"
+        case macro = "Macro"
+        var id: String { rawValue }
+    }
+
     @StateObject private var client = PanelClient()
     @State private var autopilotPrompt = "run smoke checks, fix first blocker, rerun smoke, report concise status"
     @State private var opsMode: OpsMode = .verify
@@ -106,6 +113,18 @@ struct DashboardView: View {
     @State private var snapshotName = "remote-tmux"
     @State private var snapshotText = ""
     @State private var actionOutput = ""
+    @State private var timelineTrack = "ALL"
+    @State private var timelineCursor = 0
+    @State private var rangeStart = 0
+    @State private var rangeEnd = 0
+    @State private var clipBuffer = ""
+    @State private var selectedPatternScale: PatternScale = .micro
+    @State private var timelineWindow = 40
+    @State private var replaySpeed: Double = 1.0
+    @State private var replayTarget = ""
+    @State private var replayTask: Task<Void, Never>?
+    @State private var timelineKindFilter = "ALL"
+    @State private var selectedProfileLayers: Set<String> = ["intent", "cadence", "blockers"]
 
     var body: some View {
         GeometryReader { geo in
@@ -149,13 +168,19 @@ struct DashboardView: View {
                 if paneTarget.isEmpty {
                     paneTarget = client.state?.takeoverCandidates.first?.target ?? ""
                 }
+                if replayTarget.isEmpty {
+                    replayTarget = paneTarget
+                }
                 scriptedNudges = cadenceProfile.script
                 scopeObjective = client.scope.objective
                 scopeDone = client.scope.doneCriteria
                 scopeIntent = client.scope.intentLatch
                 startWatchLoopIfNeeded()
             }
-            .onDisappear { watchTask?.cancel() }
+            .onDisappear {
+                watchTask?.cancel()
+                replayTask?.cancel()
+            }
         }
     }
 
@@ -183,6 +208,11 @@ struct DashboardView: View {
                 Text("PANIC")
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(.red)
+            }
+            if client.degradedMode {
+                Text("DEGRADED")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.orange)
             }
             Button("Refresh") {
                 Task { await client.refresh() }
@@ -402,10 +432,13 @@ struct DashboardView: View {
                 HStack {
                     Text("Refresh cadence")
                     Spacer()
-                    Text("\(Int(refreshCadenceSec))s")
+                    Text("\(Int(refreshCadenceSec))s -> \(Int(client.effectiveRefreshCadence(baseSeconds: refreshCadenceSec)))s")
                 }
                 Slider(value: $refreshCadenceSec, in: 2...30, step: 1)
                     .onChange(of: refreshCadenceSec) { _ in startWatchLoopIfNeeded() }
+                Text("cadence mode: \(client.cadenceNote)")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.secondary)
 
                 HStack {
                     Text("Autopilot cooldown")
@@ -486,6 +519,45 @@ struct DashboardView: View {
                 }
                 .buttonStyle(.bordered)
             }
+            GlassCard(title: "Sampler Palette") {
+                Text("Sample promptsets, cadences, and paramsets")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                HStack {
+                    Button("Sample Prompt") { samplePromptFromHistory() }
+                        .buttonStyle(.bordered)
+                    Button("Sample Cadence") { applyRandomCadencePreset() }
+                        .buttonStyle(.bordered)
+                    Button("Sample Params") { applyRandomParamset() }
+                        .buttonStyle(.borderedProminent)
+                }
+                Text("applied cadence: refresh=\(Int(refreshCadenceSec))s cooldown=\(Int(client.autopilotCooldownSec))s delay=\(Int(client.actionDelayMs))ms fanout=\(client.fanoutPerCycle)")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                Divider()
+                Text("Pattern Library")
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                Picker("Scale", selection: $selectedPatternScale) {
+                    ForEach(PatternScale.allCases) { scale in
+                        Text(scale.rawValue).tag(scale)
+                    }
+                }
+                .pickerStyle(.segmented)
+                ScrollView(.horizontal) {
+                    HStack(spacing: 8) {
+                        ForEach(patternLibrary.filter { $0.scale == selectedPatternScale }) { p in
+                            SkeuoPatternTile(
+                                title: p.name,
+                                subtitle: p.subtitle,
+                                accent: p.accent
+                            ) {
+                                applyPattern(p)
+                            }
+                            .frame(width: 180)
+                        }
+                    }
+                }
+            }
             GlassCard(title: "System Profile") {
                 Picker("Profile", selection: $systemProfile) {
                     ForEach(SystemProfile.allCases) { p in
@@ -532,6 +604,20 @@ struct DashboardView: View {
                     client.clearTelemetryMemory()
                 }
                 .buttonStyle(.bordered)
+                Button("Write Prompt History + Cadence Report") {
+                    client.exportPromptHistoryAndCadenceReport()
+                }
+                .buttonStyle(.borderedProminent)
+                if !client.promptHistoryPath.isEmpty {
+                    Text("history: \(client.promptHistoryPath)")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+                if !client.cadenceReportPath.isEmpty {
+                    Text("report: \(client.cadenceReportPath)")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
             }
             GlassCard(title: "Panic + Lanes") {
                 if client.panicMode {
@@ -554,6 +640,45 @@ struct DashboardView: View {
                     }
                     .buttonStyle(.bordered)
                 }
+            }
+            GlassCard(title: "Breakers") {
+                if client.degradedMode {
+                    Text("Degraded mode: \(client.degradedReason)")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.orange)
+                } else {
+                    Text("No degraded condition active")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.green)
+                }
+                Text("open routes: \(client.routeBreakers.values.filter { $0.isOpen }.count) | open node-routes: \(client.nodeRouteBreakers.values.filter { $0.isOpen }.count)")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                HStack {
+                    Button("Reset Breakers") {
+                        client.resetBreakers()
+                    }
+                    .buttonStyle(.bordered)
+                }
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 4) {
+                        ForEach(client.routeBreakers.keys.sorted(), id: \.self) { key in
+                            if let b = client.routeBreakers[key], b.isOpen {
+                                Text("\(key): \(b.lastTripReason)")
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundStyle(.yellow)
+                            }
+                        }
+                        ForEach(Array(client.nodeRouteBreakers.keys.sorted().prefix(20)), id: \.self) { key in
+                            if let b = client.nodeRouteBreakers[key], b.isOpen {
+                                Text("\(key): \(b.lastTripReason)")
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundStyle(.yellow)
+                            }
+                        }
+                    }
+                }
+                .frame(maxHeight: 120)
             }
             GlassCard(title: "API Capabilities") {
                 VStack(alignment: .leading, spacing: 4) {
@@ -699,6 +824,213 @@ struct DashboardView: View {
                         }
                         if client.commutationPreview.isEmpty {
                             Text("(no preview yet)")
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+            GlassCard(title: "Session Profile") {
+                Text(sessionProfileSummary)
+                    .font(.system(size: 10, design: .monospaced))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(6)
+                    .background(Color.black.opacity(0.2))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+            }
+            GlassCard(title: "Materia Flow") {
+                let m = materiaMetrics
+                Text("prima_materia=\(m.duplexCount) duplex events | vessels=\(m.vesselCount) api interactions | crystals=\(m.crystalCount) git/file artifacts")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 4) {
+                    flowBar("Supply", value: m.duplexCount, total: m.total, color: .mint)
+                    flowBar("Vessel", value: m.vesselCount, total: m.total, color: .cyan)
+                    flowBar("Crystallize", value: m.crystalCount, total: m.total, color: .orange)
+                }
+                Text("pipeline: filter -> arrange -> weave -> smoke-verify")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
+            GlassCard(title: "Profile Layers") {
+                let layers = sessionProfileLayers
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(layers, id: \.key) { layer in
+                            HStack(alignment: .top, spacing: 6) {
+                                Toggle("", isOn: Binding(
+                                    get: { selectedProfileLayers.contains(layer.key) },
+                                    set: { on in
+                                        if on { selectedProfileLayers.insert(layer.key) } else { selectedProfileLayers.remove(layer.key) }
+                                    }
+                                ))
+                                .toggleStyle(.checkbox)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(layer.key)
+                                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                        .foregroundStyle(.mint)
+                                    Text(layer.value)
+                                        .font(.system(size: 10, design: .monospaced))
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .padding(6)
+                            .background(Color.black.opacity(0.2))
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                        }
+                    }
+                }
+                HStack {
+                    Button("Compose Loop Primer") {
+                        autopilotPrompt = composeLayerPrimer(from: layers)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    Button("Select All") {
+                        selectedProfileLayers = Set(layers.map(\.key))
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+            GlassCard(title: "Prompt Timeline") {
+                let tracks = timelineTrackKeys
+                Picker("Track", selection: $timelineTrack) {
+                    ForEach(tracks, id: \.self) { t in
+                        Text(t).tag(t)
+                    }
+                }
+                .pickerStyle(.menu)
+                Picker("Kind", selection: $timelineKindFilter) {
+                    ForEach(["ALL"] + TimelineKind.allCases.map(\.rawValue), id: \.self) { k in
+                        Text(k).tag(k)
+                    }
+                }
+                .pickerStyle(.segmented)
+                let events = timelineEventsForSelectedTrack
+                if !events.isEmpty {
+                    let maxIdx = max(0, events.count - 1)
+                    HStack {
+                        Button("Prev") { timelineCursor = max(0, timelineCursor - 1) }
+                            .buttonStyle(.bordered)
+                        Button("Next") { timelineCursor = min(maxIdx, timelineCursor + 1) }
+                            .buttonStyle(.bordered)
+                        Text("cursor \(timelineCursor + 1)/\(events.count)")
+                            .font(.system(size: 10, design: .monospaced))
+                    }
+                    HStack {
+                        Button(replayTask == nil ? "Play" : "Stop") {
+                            toggleReplay(events: events)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        Button("Step") {
+                            replayOneStep(events: events)
+                        }
+                        .buttonStyle(.bordered)
+                        Text("speed x\(String(format: "%.1f", replaySpeed))")
+                            .font(.system(size: 10, design: .monospaced))
+                        Slider(value: $replaySpeed, in: 0.25...3.0, step: 0.25)
+                        TextField("Replay target", text: $replayTarget)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                    Slider(value: Binding(
+                        get: { Double(min(timelineCursor, maxIdx)) },
+                        set: { timelineCursor = Int($0.rounded()) }
+                    ), in: 0...Double(maxIdx), step: 1)
+                    HStack {
+                        Text("window \(timelineWindow)")
+                        Slider(value: Binding(
+                            get: { Double(timelineWindow) },
+                            set: { timelineWindow = Int($0.rounded()) }
+                        ), in: 10...120, step: 1)
+                    }
+                    HStack {
+                        Text("range")
+                        Spacer()
+                        Stepper("start \(rangeStart + 1)", value: Binding(
+                            get: { min(rangeStart, maxIdx) },
+                            set: { rangeStart = min(max(0, $0), maxIdx) }
+                        ), in: 0...maxIdx)
+                        Stepper("end \(rangeEnd + 1)", value: Binding(
+                            get: { min(rangeEnd, maxIdx) },
+                            set: { rangeEnd = min(max(0, $0), maxIdx) }
+                        ), in: 0...maxIdx)
+                    }
+                    HStack {
+                        Button("Copy Range") {
+                            let lines = selectedRangeEvents(in: events).map(\.prompt)
+                            clipBuffer = lines.joined(separator: "\n")
+                            copyToClipboard(clipBuffer)
+                        }
+                        .buttonStyle(.bordered)
+                        Button("Cut Range") {
+                            let ids = Set(selectedRangeEvents(in: events).map(\.id))
+                            let lines = selectedRangeEvents(in: events).map(\.prompt)
+                            clipBuffer = lines.joined(separator: "\n")
+                            client.deletePromptEvents(ids: ids)
+                            timelineCursor = 0
+                        }
+                        .buttonStyle(.bordered)
+                        Button("Paste Clip To Track") {
+                            let target = timelineTrack == "ALL" ? nil : timelineTrack
+                            client.pastePromptClip(clipBuffer.split(separator: "\n").map(String.init), target: target)
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                    TextEditor(text: $clipBuffer)
+                        .font(.system(size: 10, design: .monospaced))
+                        .frame(height: 56)
+                        .scrollContentBackground(.hidden)
+                        .background(Color.black.opacity(0.18))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+
+                Text(client.cadenceReport)
+                    .font(.system(size: 10, design: .monospaced))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(6)
+                    .background(Color.black.opacity(0.2))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+
+                ScrollView(.horizontal) {
+                    HStack(alignment: .top, spacing: 8) {
+                        ForEach(trackRows, id: \.key) { row in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(row.key)
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundStyle(.mint)
+                                ForEach(row.value.suffix(20)) { ev in
+                                    Text("\(timeString(ev.ts)) \(ev.route)")
+                                        .font(.system(size: 9, design: .monospaced))
+                                        .padding(4)
+                                        .background(Color.black.opacity(0.2))
+                                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                                }
+                            }
+                            .padding(6)
+                            .background(Color.white.opacity(0.03))
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                        }
+                    }
+                }
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 6) {
+                        ForEach(Array(windowedTimelineEvents(from: events).reversed().enumerated()), id: \.offset) { idx, ev in
+                            let prev = priorEvent(forReversedIndex: idx, in: events)
+                            let delta = prev == nil ? "-" : "\(Int(max(0, ev.ts - (prev?.ts ?? ev.ts))))s"
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("\(timeString(ev.ts)) | +\(delta) | \(ev.route) | \(ev.target ?? "-") | \(ev.kind.rawValue)")
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundStyle(kindColor(ev.kind))
+                                Text(ev.prompt)
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(6)
+                            .background(Color.black.opacity(0.2))
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                        }
+                        if events.isEmpty {
+                            Text("(no prompt events yet)")
                                 .font(.system(size: 10, design: .monospaced))
                                 .foregroundStyle(.secondary)
                         }
@@ -1040,6 +1372,61 @@ struct DashboardView: View {
             .map { $0 }
     }
 
+    private var timelineEventsForSelectedTrack: [PromptEvent] {
+        let events = TimelineEngine.events(forTrack: timelineTrack, allEvents: client.promptHistory)
+        guard timelineKindFilter != "ALL" else { return events }
+        return events.filter { $0.kind.rawValue == timelineKindFilter }
+    }
+
+    private var timelineTrackKeys: [String] {
+        ["ALL"] + TimelineEngine.tracks(client.promptHistory).map(\.name)
+    }
+
+    private var trackRows: [(key: String, value: [PromptEvent])] {
+        TimelineEngine.tracks(client.promptHistory).map { ($0.name, $0.events) }
+    }
+
+    private var sessionProfileSummary: String {
+        let total = client.promptHistory.count
+        let cadence = TimelineEngine.cadenceDeltas(client.promptHistory)
+        let mean = cadence.isEmpty ? 0 : cadence.reduce(0, +) / Double(cadence.count)
+        let promptN = client.promptHistory.filter { $0.kind == .prompt }.count
+        let gitN = client.promptHistory.filter { $0.kind == .git }.count
+        let fileN = client.promptHistory.filter { $0.kind == .file }.count
+        let serviceN = client.promptHistory.filter { $0.kind == .service }.count
+        let openBreakers = client.routeBreakers.values.filter { $0.isOpen }.count + client.nodeRouteBreakers.values.filter { $0.isOpen }.count
+        return """
+        total_events=\(total)
+        mean_cadence=\(String(format: "%.1f", mean))s
+        layers: prompt=\(promptN) git=\(gitN) file=\(fileN) service=\(serviceN)
+        health=\(client.interactionHealth.label) score=\(client.interactionHealth.score)
+        breakers_open=\(openBreakers) degraded=\(client.degradedMode)
+        cadence_mode=\(client.cadenceNote)
+        """
+    }
+
+    private var sessionProfileLayers: [(key: String, value: String)] {
+        let cadence = TimelineEngine.cadenceDeltas(client.promptHistory)
+        let mean = cadence.isEmpty ? 0 : cadence.reduce(0, +) / Double(cadence.count)
+        let burst = cadence.isEmpty ? 0 : (Double(cadence.filter { $0 < 60 }.count) / Double(cadence.count)) * 100
+        let blockers = client.interactionHealth.notes.joined(separator: " ")
+        return [
+            ("intent", "latched=\(client.intentLatched) checksum=\(client.latchedIntentChecksum.isEmpty ? "-" : client.latchedIntentChecksum)"),
+            ("cadence", "mean=\(String(format: "%.1f", mean))s burst<60s=\(String(format: "%.1f", burst))% mode=\(client.cadenceNote)"),
+            ("blockers", blockers.isEmpty ? "none" : blockers),
+            ("automation", "fanout=\(client.fanoutPerCycle) fallback=\(client.enableFallbackRouting) autotune=\(client.autoTuneScheduler)"),
+            ("trace", "events=\(client.promptHistory.count) queue=\(client.state?.queue.count ?? 0) smoke=\(client.state?.smoke.status ?? "unknown")")
+        ]
+    }
+
+    private var materiaMetrics: (duplexCount: Int, vesselCount: Int, crystalCount: Int, total: Int) {
+        let total = max(1, client.promptHistory.count)
+        let duplex = client.promptHistory.filter { $0.kind == .prompt }.count
+        let vessel = client.promptHistory.filter { $0.kind == .service }.count
+        let crystal = client.promptHistory.filter { $0.kind == .git || $0.kind == .file }.count
+        return (duplex, vessel, crystal, total)
+    }
+
     private var autopilotDisabledReason: String {
         if client.panicMode {
             return "Panic freeze is active. Resume to allow actions."
@@ -1108,7 +1495,8 @@ struct DashboardView: View {
         watchTask = Task {
             while !Task.isCancelled {
                 await client.refresh()
-                let ns = UInt64(max(2, Int(refreshCadenceSec)) * 1_000_000_000)
+                let eff = client.effectiveRefreshCadence(baseSeconds: refreshCadenceSec)
+                let ns = UInt64(max(2, Int(eff.rounded())) * 1_000_000_000)
                 try? await Task.sleep(nanoseconds: ns)
             }
         }
@@ -1130,6 +1518,212 @@ struct DashboardView: View {
         }
         .buttonStyle(.bordered)
         .font(.system(size: 10, design: .monospaced))
+    }
+
+    private func priorEvent(forReversedIndex idx: Int, in events: [PromptEvent]) -> PromptEvent? {
+        let arr = Array(events.suffix(60).reversed())
+        guard idx + 1 < arr.count else { return nil }
+        return arr[idx + 1]
+    }
+
+    private func windowedTimelineEvents(from events: [PromptEvent]) -> [PromptEvent] {
+        guard !events.isEmpty else { return [] }
+        let c = min(max(0, timelineCursor), events.count - 1)
+        let half = max(1, timelineWindow / 2)
+        let lo = max(0, c - half)
+        let hi = min(events.count - 1, c + half)
+        return Array(events[lo...hi])
+    }
+
+    private func selectedRangeEvents(in events: [PromptEvent]) -> [PromptEvent] {
+        TimelineEngine.rangeEvents(events, start: rangeStart, end: rangeEnd)
+    }
+
+    private func timeString(_ ts: TimeInterval) -> String {
+        let d = Date(timeIntervalSince1970: ts)
+        return d.formatted(date: .omitted, time: .standard)
+    }
+
+    private func replayOneStep(events: [PromptEvent]) {
+        guard !events.isEmpty else { return }
+        let idx = min(max(0, timelineCursor), events.count - 1)
+        let ev = events[idx]
+        let target = replayTarget.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? (ev.target ?? paneTarget) : replayTarget
+        Task {
+            actionOutput = await client.paneSend(target: target, text: ev.prompt, enter: true)
+        }
+        if idx < events.count - 1 {
+            timelineCursor = idx + 1
+        }
+    }
+
+    private func toggleReplay(events: [PromptEvent]) {
+        if let task = replayTask {
+            task.cancel()
+            replayTask = nil
+            return
+        }
+        replayTask = Task {
+            while !Task.isCancelled {
+                if events.isEmpty { break }
+                let idx = min(max(0, timelineCursor), events.count - 1)
+                let ev = events[idx]
+                let target = replayTarget.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? (ev.target ?? paneTarget) : replayTarget
+                actionOutput = await client.paneSend(target: target, text: ev.prompt, enter: true)
+                if idx >= events.count - 1 { break }
+                timelineCursor = idx + 1
+                let base = idx + 1 < events.count ? max(0.2, events[idx + 1].ts - ev.ts) : 1.0
+                let wait = max(0.15, base / max(0.25, replaySpeed))
+                try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
+            }
+            replayTask = nil
+        }
+    }
+
+    private func samplePromptFromHistory() {
+        let candidates = client.promptHistory.suffix(80).map(\.prompt).filter { !$0.isEmpty }
+        if let pick = candidates.randomElement() {
+            autopilotPrompt = pick
+        }
+    }
+
+    private func applyRandomCadencePreset() {
+        let presets: [(Double, Double, Double, Int)] = [
+            (4, 6, 700, 3),
+            (8, 14, 1500, 1),
+            (12, 20, 2200, 1),
+            (6, 10, 1100, 2)
+        ]
+        guard let p = presets.randomElement() else { return }
+        refreshCadenceSec = p.0
+        client.autopilotCooldownSec = p.1
+        client.actionDelayMs = p.2
+        client.fanoutPerCycle = p.3
+        startWatchLoopIfNeeded()
+    }
+
+    private func applyRandomParamset() {
+        let fallbacks = [30, 40, 50, 60]
+        let primaries = [55, 65, 75, 85]
+        if let f = fallbacks.randomElement() {
+            client.fallbackFluencyThreshold = f
+        }
+        if let p = primaries.randomElement() {
+            client.minFluencyForPrimary = p
+        }
+        client.enableFallbackRouting = Bool.random()
+        client.autoTuneScheduler = Bool.random()
+    }
+
+    private var patternLibrary: [PatternPreset] {
+        [
+            PatternPreset(name: "Pulse Clamp", subtitle: "fast verify bursts", scale: .micro, accent: .mint, prompt: "classify blockers only, no writes", refresh: 4, cooldown: 6, delay: 700, fanout: 2, fallback: 35, primary: 70),
+            PatternPreset(name: "Nudge Probe", subtitle: "single-lane probe", scale: .micro, accent: .cyan, prompt: "inject concise corrective nudge and report delta", refresh: 6, cooldown: 8, delay: 900, fanout: 1, fallback: 40, primary: 65),
+            PatternPreset(name: "Stability Sweep", subtitle: "repair first blocker", scale: .meso, accent: .yellow, prompt: "run smoke checks, fix first blocker, rerun smoke, report concise status", refresh: 8, cooldown: 14, delay: 1500, fanout: 2, fallback: 45, primary: 65),
+            PatternPreset(name: "Route Hardening", subtitle: "contract-first pass", scale: .meso, accent: .orange, prompt: "validate contracts and failing stages only; identify first deterministic blocker", refresh: 10, cooldown: 16, delay: 1700, fanout: 1, fallback: 30, primary: 75),
+            PatternPreset(name: "Deep Salvage", subtitle: "long-form containment", scale: .macro, accent: .red, prompt: "stabilize noisy loops, run one bounded smoke-guided repair cycle", refresh: 14, cooldown: 22, delay: 2300, fanout: 1, fallback: 50, primary: 60),
+            PatternPreset(name: "Throughput Grid", subtitle: "high-yield shipping", scale: .macro, accent: .purple, prompt: "fix first failing smoke step, rerun smoke, emit patch-ready summary", refresh: 5, cooldown: 7, delay: 800, fanout: 3, fallback: 35, primary: 80)
+        ]
+    }
+
+    private func applyPattern(_ p: PatternPreset) {
+        autopilotPrompt = p.prompt
+        refreshCadenceSec = p.refresh
+        client.autopilotCooldownSec = p.cooldown
+        client.actionDelayMs = p.delay
+        client.fanoutPerCycle = p.fanout
+        client.fallbackFluencyThreshold = p.fallback
+        client.minFluencyForPrimary = p.primary
+        startWatchLoopIfNeeded()
+    }
+
+    private func composeLayerPrimer(from layers: [(key: String, value: String)]) -> String {
+        let selected = layers.filter { selectedProfileLayers.contains($0.key) }
+        let body = selected.map { "\($0.key): \($0.value)" }.joined(separator: "\n")
+        return """
+        Reapply profile layers to current inference loop:
+        \(body)
+        Execute one bounded cycle: diagnose -> one action -> smoke -> concise delta.
+        """
+    }
+
+    private func kindColor(_ kind: TimelineKind) -> Color {
+        switch kind {
+        case .prompt: return .mint
+        case .git: return .orange
+        case .file: return .yellow
+        case .service: return .cyan
+        }
+    }
+
+    private func flowBar(_ label: String, value: Int, total: Int, color: Color) -> some View {
+        let frac = max(0.0, min(1.0, Double(value) / Double(max(1, total))))
+        return VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Text(label).font(.system(size: 10, design: .monospaced))
+                Spacer()
+                Text("\(value)").font(.system(size: 10, design: .monospaced))
+            }
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.08))
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(LinearGradient(colors: [color.opacity(0.8), color.opacity(0.3)], startPoint: .leading, endPoint: .trailing))
+                        .frame(width: geo.size.width * frac)
+                }
+            }
+            .frame(height: 8)
+        }
+    }
+}
+
+private struct PatternPreset: Identifiable {
+    let id = UUID()
+    let name: String
+    let subtitle: String
+    let scale: DashboardView.PatternScale
+    let accent: Color
+    let prompt: String
+    let refresh: Double
+    let cooldown: Double
+    let delay: Double
+    let fanout: Int
+    let fallback: Int
+    let primary: Int
+}
+
+private struct SkeuoPatternTile: View {
+    let title: String
+    let subtitle: String
+    let accent: Color
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title)
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(accent)
+                Text(subtitle)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(LinearGradient(colors: [accent.opacity(0.7), accent.opacity(0.2)], startPoint: .leading, endPoint: .trailing))
+                    .frame(height: 6)
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(LinearGradient(colors: [Color.white.opacity(0.16), Color.white.opacity(0.06)], startPoint: .topLeading, endPoint: .bottomTrailing))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(Color.white.opacity(0.15), lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.35), radius: 8, y: 6)
+        }
+        .buttonStyle(.plain)
     }
 }
 

@@ -55,6 +55,20 @@
   - half-life based attenuation (`4h..96h` in UI)
   - keeps recent behavior dominant while preserving continuity
 
+## Circuit breakers and degraded mode
+- Breakers are tracked:
+  - per route (`routeBreakers`)
+  - per node-route pair (`nodeRouteBreakers`)
+- Trip condition (configurable):
+  - sample window
+  - minimum failures
+  - failure-rate threshold
+  - open cooldown duration
+- Degraded mode auto-engages when breaker pressure is high:
+  - >=2 open route breakers, or
+  - >=5 open node-route breakers
+- In degraded mode, commuted autopilot is suppressed and operator can inspect/reset breakers.
+
 ## Diagnostic profiles
 - `LLM Duplex`:
   - diagnose drift loops, repeated prompts, and approval stalls

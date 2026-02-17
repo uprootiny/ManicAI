@@ -15,6 +15,9 @@ A styled macOS operator app for agent-heavy development environments.
 - Enforces a cognitive hygiene layer: intent latch checksum, attention budget limits, agitation score, and healthy-cycle deltas
 - Adds per-target laneing (`Primary`/`Secondary`/`Quarantine`) and per-target cooldown/delay overrides
 - Adds global panic button: freeze all mutation actions while preserving read-only polling
+- Adds DAW-style prompt timeline tracks with scrubbing, replay navigation, and clip operations (copy/cut/paste across tracks)
+- Adds a skeuomorphic sampler palette for promptset/cadence/paramset pattern libraries (micro/meso/macro scales)
+- Persists prompt history and writes cadence analysis reports
 
 ## Run locally (macOS)
 
@@ -70,3 +73,19 @@ The app surfaces this as a mode switch in the control pane so operators can stag
   - approve safe command
   - freeze session
   - promote primary session
+
+## Operational cadence automation
+
+Scripts in `scripts/cadence/`:
+
+- `feed_health_check.sh` (15-min rhythm)
+- `daily_snapshot.sh` (daily state archive)
+- `weekly_benchmark_drift.py` (weekly drift report from snapshots)
+- `install_cron.sh` (installs all three rhythms into user crontab)
+
+Example:
+
+```bash
+cd /path/to/ManicAI
+./scripts/cadence/install_cron.sh http://173.212.203.211:8788
+```

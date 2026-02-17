@@ -208,3 +208,63 @@ struct CommutationPlanStep: Identifiable {
     let strategy: ExecutionStrategy
     let reason: String
 }
+
+struct BreakerConfig {
+    var sampleWindow: Int = 6
+    var minFailures: Int = 3
+    var failureRateTrip: Double = 0.6
+    var openCooldownSec: TimeInterval = 90
+}
+
+struct BreakerState {
+    var openUntil: Date?
+    var lastTripReason: String = ""
+    var recent: [Bool] = []
+
+    var isOpen: Bool {
+        guard let until = openUntil else { return false }
+        return until > Date()
+    }
+}
+
+struct PromptEvent: Codable, Identifiable {
+    let id: UUID
+    let ts: TimeInterval
+    let route: String
+    let target: String?
+    let prompt: String
+    let kind: TimelineKind
+    let summary: String?
+
+    init(id: UUID, ts: TimeInterval, route: String, target: String?, prompt: String, kind: TimelineKind = .prompt, summary: String? = nil) {
+        self.id = id
+        self.ts = ts
+        self.route = route
+        self.target = target
+        self.prompt = prompt
+        self.kind = kind
+        self.summary = summary
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, ts, route, target, prompt, kind, summary
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        ts = try c.decodeIfPresent(TimeInterval.self, forKey: .ts) ?? 0
+        route = try c.decodeIfPresent(String.self, forKey: .route) ?? "-"
+        target = try c.decodeIfPresent(String.self, forKey: .target)
+        prompt = try c.decodeIfPresent(String.self, forKey: .prompt) ?? ""
+        kind = try c.decodeIfPresent(TimelineKind.self, forKey: .kind) ?? .prompt
+        summary = try c.decodeIfPresent(String.self, forKey: .summary)
+    }
+}
+
+enum TimelineKind: String, Codable, CaseIterable {
+    case prompt
+    case git
+    case file
+    case service
+}

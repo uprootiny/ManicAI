@@ -90,4 +90,26 @@ final class ControlSpecsTests: XCTestCase {
         XCTAssertEqual(out["k"]?.success, 4)
         XCTAssertEqual(out["k"]?.failure, 2)
     }
+
+    @MainActor
+    func testRouteBreakerTripsAndDegradedMode() {
+        let client = PanelClient()
+        client.breakerConfig = BreakerConfig(sampleWindow: 4, minFailures: 2, failureRateTrip: 0.5, openCooldownSec: 60)
+        client.resetBreakers()
+
+        client.ingestSyntheticOutcome(route: "autopilot/run", ok: false)
+        client.ingestSyntheticOutcome(route: "autopilot/run", ok: false)
+        client.ingestSyntheticOutcome(route: "autopilot/run", ok: true)
+        client.ingestSyntheticOutcome(route: "autopilot/run", ok: false)
+
+        XCTAssertTrue(client.routeBreakers["autopilot/run"]?.isOpen ?? false)
+        XCTAssertFalse(client.degradedMode)
+
+        client.ingestSyntheticOutcome(route: "smoke", ok: false)
+        client.ingestSyntheticOutcome(route: "smoke", ok: false)
+        client.ingestSyntheticOutcome(route: "smoke", ok: false)
+        client.ingestSyntheticOutcome(route: "smoke", ok: true)
+        XCTAssertTrue(client.routeBreakers["smoke"]?.isOpen ?? false)
+        XCTAssertTrue(client.degradedMode)
+    }
 }

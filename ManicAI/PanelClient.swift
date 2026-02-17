@@ -25,6 +25,8 @@ final class PanelClient: ObservableObject {
     @Published var apiStatsByNodeRoute: [String: APICallStats] = [:]
     @Published var panicMode: Bool = false
     @Published var panicReason: String = ""
+    @Published var degradedMode: Bool = false
+    @Published var degradedReason: String = ""
     @Published var laneByTarget: [String: LanePriority] = [:]
     @Published var throttleByTarget: [String: SessionThrottle] = [:]
     @Published var autoTuneScheduler: Bool = true
@@ -35,6 +37,15 @@ final class PanelClient: ObservableObject {
     @Published var commutationPreview: [CommutationPlanStep] = []
     @Published var telemetryHalfLifeHours: Int = 24
     @Published var telemetryLoadedAt: Date?
+    @Published var breakerConfig = BreakerConfig()
+    @Published var routeBreakers: [String: BreakerState] = [:]
+    @Published var nodeRouteBreakers: [String: BreakerState] = [:]
+    @Published var cadenceBackoffFactor: Double = 1.0
+    @Published var cadenceNote: String = "normal"
+    @Published var promptHistory: [PromptEvent] = []
+    @Published var cadenceReport: String = ""
+    @Published var promptHistoryPath: String = ""
+    @Published var cadenceReportPath: String = ""
     private var lastAutopilotAt: Date?
     private var lastAutopilotAtByTarget: [String: Date] = [:]
     private var refreshQueued: Bool = false
@@ -51,6 +62,7 @@ final class PanelClient: ObservableObject {
     private static let nodeStatsKey = "manicai.telemetry.nodeStats.v1"
     private static let actionLogKey = "manicai.telemetry.actionLog.v1"
     private static let schedulerNotesKey = "manicai.telemetry.schedulerNotes.v1"
+    private static let promptHistoryMemKey = "manicai.telemetry.promptHistory.v1"
 
     var baseURL: URL {
         didSet { UserDefaults.standard.set(baseURL.absoluteString, forKey: "manicai.baseURL") }
@@ -87,6 +99,9 @@ final class PanelClient: ObservableObject {
             telemetryHalfLifeHours = max(1, hl)
         }
         loadTelemetryMemory()
+        let urls = historyURLs()
+        promptHistoryPath = urls.history.path
+        cadenceReportPath = urls.report.path
     }
 
     func refresh() async {
@@ -104,6 +119,7 @@ final class PanelClient: ObservableObject {
             consecutiveErrors = 0
             lastAction = "Refreshed \(baseURL.host ?? "unknown")"
             log("refresh ok: \(baseURL.absoluteString)")
+            recordTimelineEvent(kind: .service, route: "api/state", target: baseURL.host, text: "refresh ok")
             if shouldScanCapabilities() {
                 await detectCapabilities()
                 lastCapabilityScanAt = Date()
@@ -115,6 +131,7 @@ final class PanelClient: ObservableObject {
             consecutiveErrors += 1
             self.error = "Refresh failed: \(error.localizedDescription)"
             log("refresh failed: \(error.localizedDescription)")
+            recordTimelineEvent(kind: .service, route: "api/state", target: baseURL.host, text: "refresh failed: \(error.localizedDescription)")
         }
         isRefreshing = false
         if refreshQueued {
@@ -126,6 +143,10 @@ final class PanelClient: ObservableObject {
     func runAutopilot(prompt: String, maxTargets: Int = 2, autoApprove: Bool = true, project: String? = nil, nodeHint: String? = nil) async {
         if panicMode {
             self.error = "Panic mode active. Mutations blocked."
+            return
+        }
+        if let deny = denyReason(route: "autopilot/run", nodeHint: nodeHint) {
+            self.error = deny
             return
         }
         UserDefaults.standard.set(autopilotCooldownSec, forKey: "manicai.autopilotCooldownSec")
@@ -152,6 +173,7 @@ final class PanelClient: ObservableObject {
             }
         }
         do {
+            recordPromptEvent(route: "autopilot/run", target: nodeHint, prompt: prompt)
             let url = pathURL("api/autopilot/run")
             var req = URLRequest(url: url)
             req.httpMethod = "POST"
@@ -165,12 +187,14 @@ final class PanelClient: ObservableObject {
             actionsInCurrentScope += 1
             lastAction = "Autopilot OK (\(selectedProject ?? "no-project")) \(payload.prefix(180))"
             log("autopilot ok: \(payload.prefix(120))")
+            recordTimelineEvent(kind: .service, route: "api/autopilot/run", target: nodeHint, text: "ok")
             markRoute("autopilot/run", ok: true, nodeHint: nodeHint)
             await refresh()
         } catch {
             consecutiveErrors += 1
             self.error = "Autopilot failed: \(error.localizedDescription)"
             log("autopilot failed: \(error.localizedDescription)")
+            recordTimelineEvent(kind: .service, route: "api/autopilot/run", target: nodeHint, text: "failed: \(error.localizedDescription)")
             markRoute("autopilot/run", ok: false, nodeHint: nodeHint)
         }
     }
@@ -178,6 +202,10 @@ final class PanelClient: ObservableObject {
     func runCommutedAutopilot(prompt: String, project: String?, autoApprove: Bool) async {
         if panicMode {
             self.error = "Panic mode active. Mutations blocked."
+            return
+        }
+        if degradedMode {
+            noteScheduler("degraded mode: commuted autopilot skipped")
             return
         }
         let plan = buildCommutationPlan(route: "autopilot/run")
@@ -212,7 +240,8 @@ final class PanelClient: ObservableObject {
             cycleResults.append("\(paneTarget):\(step.strategy.rawValue)")
             maybeRetuneLane(target: paneTarget, route: "autopilot/run")
             let delayMs = throttleForTarget(paneTarget).delayMs ?? actionDelayMs
-            let ns = UInt64(max(0, delayMs) * 1_000_000)
+            let effectiveDelayMs = delayMs * cadenceBackoffFactor
+            let ns = UInt64(max(0, effectiveDelayMs) * 1_000_000)
             try? await Task.sleep(nanoseconds: ns)
         }
         lastAction = "Commuted cycle over: \(cycleResults.joined(separator: ", "))"
@@ -240,6 +269,10 @@ final class PanelClient: ObservableObject {
             self.error = "Panic mode active. Mutations blocked."
             return "panic-blocked"
         }
+        if let deny = denyReason(route: "smoke", nodeHint: nil) {
+            self.error = deny
+            return "breaker-blocked"
+        }
         let selectedProject = project ?? state?.projects.first?.path
         guard let selectedProject else {
             error = "Smoke skipped: no project selected"
@@ -259,6 +292,7 @@ final class PanelClient: ObservableObject {
             cycleJournal.insert("smoke[\(selectedProject)]: \(text.prefix(160))", at: 0)
             actionsInCurrentScope += 1
             log("smoke ok[\(selectedProject)]: \(text.prefix(120))")
+            recordTimelineEvent(kind: .service, route: "api/smoke", target: selectedProject, text: "ok")
             markRoute("smoke", ok: true)
             await refresh()
             return text
@@ -267,12 +301,14 @@ final class PanelClient: ObservableObject {
             self.error = "Smoke failed: \(error.localizedDescription)"
             cycleJournal.insert("smoke-failed[\(selectedProject)]: \(error.localizedDescription)", at: 0)
             log("smoke failed[\(selectedProject)]: \(error.localizedDescription)")
+            recordTimelineEvent(kind: .service, route: "api/smoke", target: selectedProject, text: "failed: \(error.localizedDescription)")
             markRoute("smoke", ok: false)
             return "error"
         }
     }
 
     func queueAdd(prompt: String, project: String?, sessionID: String?) async -> String {
+        recordPromptEvent(route: "queue/add", target: sessionID, prompt: prompt)
         let payload: [String: Any] = [
             "prompt": prompt,
             "project": project ?? "",
@@ -290,6 +326,7 @@ final class PanelClient: ObservableObject {
     }
 
     func paneSend(target: String, text: String, enter: Bool = true) async -> String {
+        recordPromptEvent(route: "pane/send", target: target, prompt: text)
         let payload: [String: Any] = [
             "target": target,
             "text": text,
@@ -299,6 +336,7 @@ final class PanelClient: ObservableObject {
     }
 
     func nudge(sessionID: String, text: String) async -> String {
+        recordPromptEvent(route: "nudge", target: sessionID, prompt: text)
         let payload: [String: Any] = [
             "session_id": sessionID,
             "text": text
@@ -410,6 +448,8 @@ final class PanelClient: ObservableObject {
     func engagePanic(reason: String = "manual") {
         panicMode = true
         panicReason = reason
+        degradedMode = true
+        degradedReason = "panic"
         for pane in state?.takeoverCandidates ?? [] {
             setLane(for: pane.target, lane: .quarantine)
         }
@@ -419,6 +459,8 @@ final class PanelClient: ObservableObject {
     func clearPanic() {
         panicMode = false
         panicReason = ""
+        degradedMode = false
+        degradedReason = ""
         lastAction = "Panic cleared. Mutations re-enabled."
     }
 
@@ -616,6 +658,10 @@ final class PanelClient: ObservableObject {
             self.error = "Panic mode active. Mutations blocked."
             return "panic-blocked"
         }
+        if let deny = denyReason(route: action, nodeHint: nodeHint) {
+            self.error = deny
+            return "breaker-blocked"
+        }
         do {
             let data = try JSONSerialization.data(withJSONObject: payload)
             var req = URLRequest(url: pathURL(path))
@@ -627,6 +673,7 @@ final class PanelClient: ObservableObject {
             let text = String(data: respData, encoding: .utf8) ?? ""
             lastAction = "\(action) ok"
             log("\(action) ok: \(text.prefix(140))")
+            recordTimelineEvent(kind: .service, route: "api/\(action)", target: nodeHint, text: "ok")
             markRoute(action, ok: true, nodeHint: nodeHint)
             await refresh()
             return text
@@ -634,6 +681,7 @@ final class PanelClient: ObservableObject {
             let msg = "\(action) failed: \(error.localizedDescription)"
             self.error = msg
             log(msg)
+            recordTimelineEvent(kind: .service, route: "api/\(action)", target: nodeHint, text: msg)
             markRoute(action, ok: false, nodeHint: nodeHint)
             return msg
         }
@@ -643,13 +691,16 @@ final class PanelClient: ObservableObject {
         var global = apiStatsByRoute[route] ?? APICallStats()
         if ok { global.success += 1 } else { global.failure += 1 }
         apiStatsByRoute[route] = global
+        recordBreakerOutcome(route: route, ok: ok)
 
         if let nodeHint, !nodeHint.isEmpty {
             let key = "\(nodeHint)|\(route)"
             var scoped = apiStatsByNodeRoute[key] ?? APICallStats()
             if ok { scoped.success += 1 } else { scoped.failure += 1 }
             apiStatsByNodeRoute[key] = scoped
+            recordBreakerOutcome(route: route, nodeHint: nodeHint, ok: ok)
         }
+        recomputeDegradedMode()
         persistTelemetryMemory()
     }
 
@@ -664,12 +715,83 @@ final class PanelClient: ObservableObject {
         apiStatsByNodeRoute = [:]
         actionLog = []
         schedulerNotes = []
+        promptHistory = []
         UserDefaults.standard.removeObject(forKey: Self.routeStatsKey)
         UserDefaults.standard.removeObject(forKey: Self.nodeStatsKey)
         UserDefaults.standard.removeObject(forKey: Self.actionLogKey)
         UserDefaults.standard.removeObject(forKey: Self.schedulerNotesKey)
+        UserDefaults.standard.removeObject(forKey: Self.promptHistoryMemKey)
         telemetryLoadedAt = Date()
         lastAction = "Telemetry memory cleared"
+    }
+
+    func resetBreakers() {
+        routeBreakers = [:]
+        nodeRouteBreakers = [:]
+        recomputeDegradedMode()
+        lastAction = "Breakers reset"
+    }
+
+    func ingestSyntheticOutcome(route: String, nodeHint: String? = nil, ok: Bool) {
+        markRoute(route, ok: ok, nodeHint: nodeHint)
+    }
+
+    func effectiveRefreshCadence(baseSeconds: Double) -> Double {
+        max(2, baseSeconds * cadenceBackoffFactor)
+    }
+
+    func exportPromptHistoryAndCadenceReport() {
+        do {
+            let urls = historyURLs()
+            let encoder = JSONEncoder()
+            var blob = ""
+            for event in promptHistory.sorted(by: { $0.ts < $1.ts }) {
+                let line = try String(data: encoder.encode(event), encoding: .utf8) ?? ""
+                blob += line + "\n"
+            }
+            try ensureHistoryDirectory()
+            try blob.write(to: urls.history, atomically: true, encoding: .utf8)
+            let report = generateCadenceReport()
+            try report.write(to: urls.report, atomically: true, encoding: .utf8)
+            cadenceReport = report
+            promptHistoryPath = urls.history.path
+            cadenceReportPath = urls.report.path
+            lastAction = "Wrote prompt history + cadence report"
+            log("history export: \(urls.history.path), report: \(urls.report.path)")
+        } catch {
+            self.error = "History export failed: \(error.localizedDescription)"
+            log("history export failed: \(error.localizedDescription)")
+        }
+    }
+
+    func deletePromptEvents(ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        promptHistory.removeAll { ids.contains($0.id) }
+        cadenceReport = generateCadenceReport()
+        persistTelemetryMemory()
+        lastAction = "Deleted \(ids.count) prompt events"
+    }
+
+    func pastePromptClip(_ lines: [String], target: String?, route: String = "replay/paste") {
+        let clean = lines.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        guard !clean.isEmpty else { return }
+        let now = Date().timeIntervalSince1970
+        for (i, line) in clean.enumerated() {
+            let event = PromptEvent(
+                id: UUID(),
+                ts: now + Double(i) * 0.001,
+                route: route,
+                target: target,
+                prompt: line
+            )
+            promptHistory.append(event)
+        }
+        if promptHistory.count > 1000 {
+            promptHistory.removeFirst(promptHistory.count - 1000)
+        }
+        cadenceReport = generateCadenceReport()
+        persistTelemetryMemory()
+        lastAction = "Pasted \(clean.count) clip lines into \(target ?? "-")"
     }
 
     private func loadTelemetryMemory() {
@@ -696,6 +818,11 @@ final class PanelClient: ObservableObject {
            let decoded = try? decoder.decode([String].self, from: data) {
             schedulerNotes = Array(decoded.prefix(80))
         }
+        if let data = UserDefaults.standard.data(forKey: Self.promptHistoryMemKey),
+           let decoded = try? decoder.decode([PromptEvent].self, from: data) {
+            promptHistory = Array(decoded.suffix(400))
+        }
+        cadenceReport = generateCadenceReport()
         telemetryLoadedAt = now
         persistTelemetryMemory()
     }
@@ -715,6 +842,9 @@ final class PanelClient: ObservableObject {
         }
         if let data = try? encoder.encode(Array(schedulerNotes.prefix(80))) {
             UserDefaults.standard.set(data, forKey: Self.schedulerNotesKey)
+        }
+        if let data = try? encoder.encode(Array(promptHistory.suffix(400))) {
+            UserDefaults.standard.set(data, forKey: Self.promptHistoryMemKey)
         }
     }
 
@@ -771,6 +901,11 @@ final class PanelClient: ObservableObject {
             score -= 5
             notes.append("Panic mode active (read-only containment).")
             agitation = max(0, agitation - 20)
+        }
+        if degradedMode {
+            score -= 15
+            notes.append("Degraded mode active: \(degradedReason).")
+            agitation += 10
         }
 
         if actionsInCurrentScope > scope.attentionBudgetActions {
@@ -881,6 +1016,9 @@ final class PanelClient: ObservableObject {
     private func chooseStrategy(for target: String, route: String) -> ExecutionStrategy {
         guard enableFallbackRouting else { return .autopilot }
         let fluency = fluencyForTarget(target, route: route)
+        if denyReason(route: route, nodeHint: target) != nil {
+            return .paneSmokeFallback
+        }
         if fluency > 0 && fluency < fallbackFluencyThreshold {
             return .paneSmokeFallback
         }
@@ -888,6 +1026,177 @@ final class PanelClient: ObservableObject {
             return .paneSmokeFallback
         }
         return .autopilot
+    }
+
+    private func denyReason(route: String, nodeHint: String?) -> String? {
+        if let nodeHint, !nodeHint.isEmpty {
+            let key = "\(nodeHint)|\(route)"
+            if let b = nodeRouteBreakers[key], b.isOpen {
+                return "Breaker open for \(key): \(b.lastTripReason)"
+            }
+        }
+        if let b = routeBreakers[route], b.isOpen {
+            return "Breaker open for \(route): \(b.lastTripReason)"
+        }
+        return nil
+    }
+
+    private func recordBreakerOutcome(route: String, nodeHint: String? = nil, ok: Bool) {
+        if let nodeHint, !nodeHint.isEmpty {
+            let key = "\(nodeHint)|\(route)"
+            var b = nodeRouteBreakers[key] ?? BreakerState()
+            appendOutcome(&b, ok: ok)
+            maybeTrip(&b, name: key)
+            nodeRouteBreakers[key] = b
+            return
+        }
+        var b = routeBreakers[route] ?? BreakerState()
+        appendOutcome(&b, ok: ok)
+        maybeTrip(&b, name: route)
+        routeBreakers[route] = b
+    }
+
+    private func appendOutcome(_ breaker: inout BreakerState, ok: Bool) {
+        breaker.recent.append(ok)
+        if breaker.recent.count > max(2, breakerConfig.sampleWindow) {
+            breaker.recent.removeFirst(breaker.recent.count - breakerConfig.sampleWindow)
+        }
+    }
+
+    private func maybeTrip(_ breaker: inout BreakerState, name: String) {
+        let sampleCount = breaker.recent.count
+        guard sampleCount >= max(2, breakerConfig.sampleWindow / 2) else { return }
+        let failures = breaker.recent.filter { !$0 }.count
+        let rate = Double(failures) / Double(sampleCount)
+        guard failures >= breakerConfig.minFailures, rate >= breakerConfig.failureRateTrip else { return }
+        breaker.openUntil = Date().addingTimeInterval(max(15, breakerConfig.openCooldownSec))
+        breaker.lastTripReason = "failures=\(failures)/\(sampleCount) rate=\(String(format: "%.2f", rate))"
+        noteScheduler("breaker trip \(name): \(breaker.lastTripReason)")
+    }
+
+    private func recomputeDegradedMode() {
+        let openRouteCount = routeBreakers.values.filter { $0.isOpen }.count
+        let openNodeRouteCount = nodeRouteBreakers.values.filter { $0.isOpen }.count
+        let pressure = openRouteCount + Int(Double(openNodeRouteCount) / 2.0)
+        cadenceBackoffFactor = min(4.0, max(1.0, 1.0 + Double(pressure) * 0.4))
+        cadenceNote = pressure == 0 ? "normal" : "backoff x\(String(format: "%.1f", cadenceBackoffFactor))"
+        if openRouteCount >= 2 || openNodeRouteCount >= 5 {
+            degradedMode = true
+            degradedReason = "breakers route=\(openRouteCount) nodeRoute=\(openNodeRouteCount)"
+            return
+        }
+        if panicMode {
+            degradedMode = true
+            degradedReason = "panic"
+            return
+        }
+        degradedMode = false
+        degradedReason = ""
+    }
+
+    private func recordPromptEvent(route: String, target: String?, prompt: String) {
+        let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let kind = classifyPromptKind(trimmed)
+        let event = PromptEvent(id: UUID(), ts: Date().timeIntervalSince1970, route: route, target: target, prompt: trimmed, kind: kind, summary: nil)
+        promptHistory.append(event)
+        if promptHistory.count > 1000 {
+            promptHistory.removeFirst(promptHistory.count - 1000)
+        }
+        cadenceReport = generateCadenceReport()
+        persistTelemetryMemory()
+    }
+
+    private func recordTimelineEvent(kind: TimelineKind, route: String, target: String?, text: String) {
+        let ev = PromptEvent(
+            id: UUID(),
+            ts: Date().timeIntervalSince1970,
+            route: route,
+            target: target,
+            prompt: text,
+            kind: kind,
+            summary: text
+        )
+        promptHistory.append(ev)
+        if promptHistory.count > 1000 {
+            promptHistory.removeFirst(promptHistory.count - 1000)
+        }
+        cadenceReport = generateCadenceReport()
+        persistTelemetryMemory()
+    }
+
+    private func classifyPromptKind(_ prompt: String) -> TimelineKind {
+        let p = prompt.lowercased()
+        if p.contains("git commit") || p.contains("commit") || p.contains("branch") || p.contains("rebase") {
+            return .git
+        }
+        if p.contains("file") || p.contains("patch") || p.contains("diff") || p.contains(".swift") || p.contains(".md") || p.contains("write ") {
+            return .file
+        }
+        return .prompt
+    }
+
+    private func generateCadenceReport() -> String {
+        let sorted = promptHistory.sorted(by: { $0.ts < $1.ts })
+        guard sorted.count >= 2 else {
+            return "Prompt cadence report: insufficient data (need >= 2 events)"
+        }
+        let intervals = zip(sorted.dropFirst(), sorted).map { max(0, $0.ts - $1.ts) }.sorted()
+        let mean = intervals.reduce(0, +) / Double(intervals.count)
+        let p50 = percentile(intervals, q: 0.50)
+        let p90 = percentile(intervals, q: 0.90)
+        let burst = intervals.filter { $0 < 10 }.count
+        let longest = intervals.last ?? 0
+
+        var byRoute: [String: [Double]] = [:]
+        for (cur, prev) in zip(sorted.dropFirst(), sorted) {
+            byRoute[cur.route, default: []].append(max(0, cur.ts - prev.ts))
+        }
+        let routeLines = byRoute.keys.sorted().map { route in
+            let xs = byRoute[route] ?? []
+            let avg = xs.isEmpty ? 0 : xs.reduce(0, +) / Double(xs.count)
+            return "- \(route): n=\(xs.count) avg=\(fmt(avg))s p90=\(fmt(percentile(xs.sorted(), q: 0.90)))s"
+        }.joined(separator: "\n")
+
+        return """
+        Prompt cadence report
+        events=\(sorted.count)
+        mean_interval=\(fmt(mean))s
+        p50_interval=\(fmt(p50))s
+        p90_interval=\(fmt(p90))s
+        burst_ratio(<10s)=\(fmt(Double(burst) / Double(intervals.count) * 100))%
+        longest_idle=\(fmt(longest))s
+
+        Per-route cadence:
+        \(routeLines)
+        """
+    }
+
+    private func percentile(_ xs: [Double], q: Double) -> Double {
+        guard !xs.isEmpty else { return 0 }
+        let clamped = min(1, max(0, q))
+        let idx = Int((Double(xs.count - 1) * clamped).rounded())
+        return xs[idx]
+    }
+
+    private func fmt(_ x: Double) -> String {
+        String(format: "%.2f", x)
+    }
+
+    private func historyURLs() -> (history: URL, report: URL) {
+        let dir = historyDirectoryURL()
+        return (dir.appendingPathComponent("prompt-history.ndjson"), dir.appendingPathComponent("prompt-cadence-report.txt"))
+    }
+
+    private func historyDirectoryURL() -> URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
+        return base.appendingPathComponent("ManicAI", isDirectory: true)
+    }
+
+    private func ensureHistoryDirectory() throws {
+        let dir = historyDirectoryURL()
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     }
 
     private func laneRank(_ lane: LanePriority) -> Int {
