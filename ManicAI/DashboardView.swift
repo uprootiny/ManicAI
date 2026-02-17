@@ -419,6 +419,16 @@ struct DashboardView: View {
                     Stepper("\(client.fanoutPerCycle)", value: $client.fanoutPerCycle, in: 1...8)
                         .labelsHidden()
                 }
+                Toggle("Auto-tune lanes by node fluency", isOn: $client.autoTuneScheduler)
+                HStack {
+                    Text("Primary lane fluency threshold")
+                    Spacer()
+                    Text("\(client.minFluencyForPrimary)%")
+                }
+                Slider(value: Binding(
+                    get: { Double(client.minFluencyForPrimary) },
+                    set: { client.minFluencyForPrimary = Int($0.rounded()) }
+                ), in: 40...95, step: 1)
 
                 Text("Scripted nudges (one step per line)")
                     .font(.system(size: 10, design: .monospaced))
@@ -516,7 +526,7 @@ struct DashboardView: View {
                                 Text(pane.target)
                                     .font(.system(size: 12, weight: .bold, design: .monospaced))
                                     .foregroundStyle(.green)
-                                Text("\(pane.command) | \(pane.liveness) | idle=\(pane.idleSec)s | thr=\(Int(pane.throughputBps)) B/s")
+                                Text("\(pane.command) | \(pane.liveness) | idle=\(pane.idleSec)s | thr=\(Int(pane.throughputBps)) B/s | fluency=\(client.fluencyForTarget(pane.target, route: "autopilot/run"))%")
                                     .font(.system(size: 11, design: .monospaced))
                                     .foregroundStyle(.secondary)
                                 Text(pane.capture.split(separator: "\n").suffix(4).joined(separator: "\n"))
@@ -836,6 +846,25 @@ struct DashboardView: View {
                         }
                         if topNodeFluencyKeys.isEmpty {
                             Text("(no node-level API stats yet)")
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+            GlassCard(title: "Scheduler Notes") {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 6) {
+                        ForEach(Array(client.schedulerNotes.prefix(24).enumerated()), id: \.offset) { _, line in
+                            Text(line)
+                                .font(.system(size: 10, design: .monospaced))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(6)
+                                .background(Color.black.opacity(0.2))
+                                .clipShape(RoundedRectangle(cornerRadius: 6))
+                        }
+                        if client.schedulerNotes.isEmpty {
+                            Text("(no scheduler decisions yet)")
                                 .font(.system(size: 10, design: .monospaced))
                                 .foregroundStyle(.secondary)
                         }

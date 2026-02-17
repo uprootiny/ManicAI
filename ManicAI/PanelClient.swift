@@ -27,6 +27,9 @@ final class PanelClient: ObservableObject {
     @Published var panicReason: String = ""
     @Published var laneByTarget: [String: LanePriority] = [:]
     @Published var throttleByTarget: [String: SessionThrottle] = [:]
+    @Published var autoTuneScheduler: Bool = true
+    @Published var minFluencyForPrimary: Int = 65
+    @Published var schedulerNotes: [String] = []
     private var lastAutopilotAt: Date?
     private var lastAutopilotAtByTarget: [String: Date] = [:]
     private var refreshQueued: Bool = false
@@ -106,7 +109,7 @@ final class PanelClient: ObservableObject {
         }
     }
 
-    func runAutopilot(prompt: String, maxTargets: Int = 2, autoApprove: Bool = true, project: String? = nil) async {
+    func runAutopilot(prompt: String, maxTargets: Int = 2, autoApprove: Bool = true, project: String? = nil, nodeHint: String? = nil) async {
         if panicMode {
             self.error = "Panic mode active. Mutations blocked."
             return
@@ -148,13 +151,13 @@ final class PanelClient: ObservableObject {
             actionsInCurrentScope += 1
             lastAction = "Autopilot OK (\(selectedProject ?? "no-project")) \(payload.prefix(180))"
             log("autopilot ok: \(payload.prefix(120))")
-            markRoute("autopilot/run", ok: true)
+            markRoute("autopilot/run", ok: true, nodeHint: nodeHint)
             await refresh()
         } catch {
             consecutiveErrors += 1
             self.error = "Autopilot failed: \(error.localizedDescription)"
             log("autopilot failed: \(error.localizedDescription)")
-            markRoute("autopilot/run", ok: false)
+            markRoute("autopilot/run", ok: false, nodeHint: nodeHint)
         }
     }
 
@@ -163,7 +166,7 @@ final class PanelClient: ObservableObject {
             self.error = "Panic mode active. Mutations blocked."
             return
         }
-        let ordered = rankedTargets()
+        let ordered = rankedTargets(route: "autopilot/run")
         let targets = Array(ordered.prefix(max(1, fanoutPerCycle)))
         if targets.isEmpty {
             await runAutopilot(prompt: prompt, maxTargets: 1, autoApprove: autoApprove, project: project)
@@ -177,9 +180,10 @@ final class PanelClient: ObservableObject {
             if let last = lastAutopilotAtByTarget[pane.target], Date().timeIntervalSince(last) < cooldown {
                 continue
             }
-            await runAutopilot(prompt: prompt, maxTargets: 1, autoApprove: autoApprove, project: project)
+            await runAutopilot(prompt: prompt, maxTargets: 1, autoApprove: autoApprove, project: project, nodeHint: pane.target)
             lastAutopilotAtByTarget[pane.target] = Date()
             cycleResults.append(pane.target)
+            maybeRetuneLane(target: pane.target, route: "autopilot/run")
             let delayMs = throttleForTarget(pane.target).delayMs ?? actionDelayMs
             let ns = UInt64(max(0, delayMs) * 1_000_000)
             try? await Task.sleep(nanoseconds: ns)
@@ -359,6 +363,21 @@ final class PanelClient: ObservableObject {
 
     func throttleForTarget(_ target: String) -> SessionThrottle {
         throttleByTarget[target] ?? SessionThrottle()
+    }
+
+    func fluencyForTarget(_ target: String, route: String) -> Int {
+        let key = "\(target)|\(route)"
+        if let stat = apiStatsByNodeRoute[key], stat.total > 0 {
+            return stat.fluency
+        }
+        if let global = apiStatsByRoute[route], global.total > 0 {
+            return global.fluency
+        }
+        return 0
+    }
+
+    func statsForTarget(_ target: String, route: String) -> APICallStats {
+        apiStatsByNodeRoute["\(target)|\(route)"] ?? APICallStats()
     }
 
     func engagePanic(reason: String = "manual") {
@@ -557,6 +576,12 @@ final class PanelClient: ObservableObject {
         if actionLog.count > 80 { actionLog = Array(actionLog.prefix(80)) }
     }
 
+    private func noteScheduler(_ message: String) {
+        let ts = Self.logFormatter.string(from: Date())
+        schedulerNotes.insert("[\(ts)] \(message)", at: 0)
+        if schedulerNotes.count > 80 { schedulerNotes = Array(schedulerNotes.prefix(80)) }
+    }
+
     private func mutate(path: String, payload: [String: Any], action: String, nodeHint: String? = nil) async -> String {
         if panicMode {
             self.error = "Panic mode active. Mutations blocked."
@@ -700,14 +725,39 @@ final class PanelClient: ObservableObject {
         previousSmokeStatus = s.smoke.status
     }
 
-    private func rankedTargets() -> [PaneInfo] {
+    private func rankedTargets(route: String) -> [PaneInfo] {
         let cands = state?.takeoverCandidates ?? []
         return cands.sorted { a, b in
             let la = laneRank(lane(for: a.target))
             let lb = laneRank(lane(for: b.target))
             if la != lb { return la < lb }
+            let fa = fluencyForTarget(a.target, route: route)
+            let fb = fluencyForTarget(b.target, route: route)
+            if fa != fb { return fa > fb }
             if a.throughputBps != b.throughputBps { return a.throughputBps > b.throughputBps }
             return a.target < b.target
+        }
+    }
+
+    private func maybeRetuneLane(target: String, route: String) {
+        guard autoTuneScheduler else { return }
+        let stat = statsForTarget(target, route: route)
+        guard stat.total >= 3 else { return }
+        let fluency = stat.fluency
+        let current = lane(for: target)
+        if fluency < max(20, minFluencyForPrimary - 35), current != .quarantine {
+            setLane(for: target, lane: .quarantine)
+            noteScheduler("lane \(target): \(current.rawValue) -> Quarantine (fluency \(fluency)%)")
+            return
+        }
+        if fluency >= minFluencyForPrimary && current != .primary {
+            setLane(for: target, lane: .primary)
+            noteScheduler("lane \(target): \(current.rawValue) -> Primary (fluency \(fluency)%)")
+            return
+        }
+        if fluency >= 35 && fluency < minFluencyForPrimary && current == .quarantine {
+            setLane(for: target, lane: .secondary)
+            noteScheduler("lane \(target): Quarantine -> Secondary (fluency \(fluency)%)")
         }
     }
 

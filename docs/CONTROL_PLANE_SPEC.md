@@ -28,3 +28,13 @@
 - Goal:
   - Use commutation to prioritize high-fluency nodes first.
   - Demote low-fluency nodes to secondary/quarantine lanes.
+
+## Adaptive commutation scheduler
+- Ranking order in commuted mode:
+  1. lane priority (`Primary`, `Secondary`, `Quarantine`)
+  2. node fluency for `autopilot/run`
+  3. live throughput
+- Auto-tune behavior (when enabled):
+  - promote node to `Primary` after >=3 samples and fluency >= configured threshold
+  - demote node to `Quarantine` after >=3 samples and low fluency
+  - recover quarantined nodes back to `Secondary` when fluency improves

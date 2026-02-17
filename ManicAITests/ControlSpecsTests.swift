@@ -22,4 +22,19 @@ final class ControlSpecsTests: XCTestCase {
         let url = ProjectRegistry.githubURL(for: "/home/uprootiny/coggy")
         XCTAssertEqual(url?.absoluteString, "https://github.com/uprootiny/coggy")
     }
+
+    func testAPICallStatsFluency() {
+        var stats = APICallStats()
+        XCTAssertEqual(stats.fluency, 0)
+        stats.success = 3
+        stats.failure = 1
+        XCTAssertEqual(stats.fluency, 75)
+    }
+
+    func testControlSpecContainsCriticalRoutes() {
+        let critical = ControlSpecs.routes.filter { $0.critical }.map(\.path)
+        XCTAssertTrue(critical.contains("/api/state"))
+        XCTAssertTrue(critical.contains("/api/autopilot/run"))
+        XCTAssertTrue(critical.contains("/api/smoke"))
+    }
 }
