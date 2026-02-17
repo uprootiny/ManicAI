@@ -429,6 +429,16 @@ struct DashboardView: View {
                     get: { Double(client.minFluencyForPrimary) },
                     set: { client.minFluencyForPrimary = Int($0.rounded()) }
                 ), in: 40...95, step: 1)
+                Toggle("Enable fallback routing (pane/send + smoke)", isOn: $client.enableFallbackRouting)
+                HStack {
+                    Text("Fallback fluency threshold")
+                    Spacer()
+                    Text("\(client.fallbackFluencyThreshold)%")
+                }
+                Slider(value: Binding(
+                    get: { Double(client.fallbackFluencyThreshold) },
+                    set: { client.fallbackFluencyThreshold = Int($0.rounded()) }
+                ), in: 10...80, step: 1)
 
                 Text("Scripted nudges (one step per line)")
                     .font(.system(size: 10, design: .monospaced))
@@ -463,6 +473,10 @@ struct DashboardView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(client.panicMode)
+                Button("Preview Commutation Plan") {
+                    client.commutationPreview = client.buildCommutationPlan(route: "autopilot/run")
+                }
+                .buttonStyle(.bordered)
             }
             GlassCard(title: "Panic + Lanes") {
                 if client.panicMode {
@@ -607,6 +621,29 @@ struct DashboardView: View {
                         }
                         if client.cycleJournal.isEmpty {
                             Text("(no cycle events)")
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+            GlassCard(title: "Commutation Plan Preview") {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 6) {
+                        ForEach(client.commutationPreview) { step in
+                            Text("\(step.target) | lane=\(step.lane.rawValue) | strat=\(step.strategy.rawValue) | fluency=\(step.fluency)% | thr=\(Int(step.throughputBps))B/s")
+                                .font(.system(size: 10, design: .monospaced))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(6)
+                                .background(Color.black.opacity(0.2))
+                                .clipShape(RoundedRectangle(cornerRadius: 6))
+                            Text(step.reason)
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        if client.commutationPreview.isEmpty {
+                            Text("(no preview yet)")
                                 .font(.system(size: 10, design: .monospaced))
                                 .foregroundStyle(.secondary)
                         }

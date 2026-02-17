@@ -38,3 +38,9 @@
   - promote node to `Primary` after >=3 samples and fluency >= configured threshold
   - demote node to `Quarantine` after >=3 samples and low fluency
   - recover quarantined nodes back to `Secondary` when fluency improves
+- Commutation plan preview:
+  - explicit per-node plan with `target`, `lane`, `strategy`, `fluency`, and reason string
+  - used before execution to inspect ordering and fallback choices
+- Fallback strategy:
+  - when node fluency is below threshold or autopilot/smoke routes are unavailable:
+    - route action as `pane/send` followed by `smoke`

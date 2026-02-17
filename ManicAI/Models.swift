@@ -193,3 +193,18 @@ struct APICallStats {
         return Int((Double(success) / Double(total) * 100).rounded())
     }
 }
+
+enum ExecutionStrategy: String {
+    case autopilot = "autopilot"
+    case paneSmokeFallback = "pane+smoke"
+}
+
+struct CommutationPlanStep: Identifiable {
+    let id = UUID()
+    let target: String
+    let lane: LanePriority
+    let fluency: Int
+    let throughputBps: Double
+    let strategy: ExecutionStrategy
+    let reason: String
+}

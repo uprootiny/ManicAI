@@ -29,7 +29,10 @@ final class PanelClient: ObservableObject {
     @Published var throttleByTarget: [String: SessionThrottle] = [:]
     @Published var autoTuneScheduler: Bool = true
     @Published var minFluencyForPrimary: Int = 65
+    @Published var enableFallbackRouting: Bool = true
+    @Published var fallbackFluencyThreshold: Int = 45
     @Published var schedulerNotes: [String] = []
+    @Published var commutationPreview: [CommutationPlanStep] = []
     private var lastAutopilotAt: Date?
     private var lastAutopilotAtByTarget: [String: Date] = [:]
     private var refreshQueued: Bool = false
@@ -96,6 +99,7 @@ final class PanelClient: ObservableObject {
                 lastCapabilityScanAt = Date()
             }
             computeDelta()
+            commutationPreview = buildCommutationPlan(route: "autopilot/run")
             recomputeInteractionHealth()
         } catch {
             consecutiveErrors += 1
@@ -166,25 +170,38 @@ final class PanelClient: ObservableObject {
             self.error = "Panic mode active. Mutations blocked."
             return
         }
-        let ordered = rankedTargets(route: "autopilot/run")
-        let targets = Array(ordered.prefix(max(1, fanoutPerCycle)))
-        if targets.isEmpty {
+        let plan = buildCommutationPlan(route: "autopilot/run")
+        commutationPreview = plan
+        if plan.isEmpty {
             await runAutopilot(prompt: prompt, maxTargets: 1, autoApprove: autoApprove, project: project)
             return
         }
 
         var cycleResults: [String] = []
-        for pane in targets {
-            if !isTargetEnabled(pane.target) { continue }
-            let cooldown = throttleForTarget(pane.target).cooldownSec ?? autopilotCooldownSec
-            if let last = lastAutopilotAtByTarget[pane.target], Date().timeIntervalSince(last) < cooldown {
+        for step in plan {
+            let paneTarget = step.target
+            if !isTargetEnabled(paneTarget) { continue }
+            let cooldown = throttleForTarget(paneTarget).cooldownSec ?? autopilotCooldownSec
+            if let last = lastAutopilotAtByTarget[paneTarget], Date().timeIntervalSince(last) < cooldown {
                 continue
             }
-            await runAutopilot(prompt: prompt, maxTargets: 1, autoApprove: autoApprove, project: project, nodeHint: pane.target)
-            lastAutopilotAtByTarget[pane.target] = Date()
-            cycleResults.append(pane.target)
-            maybeRetuneLane(target: pane.target, route: "autopilot/run")
-            let delayMs = throttleForTarget(pane.target).delayMs ?? actionDelayMs
+            switch step.strategy {
+            case .autopilot:
+                await runAutopilot(prompt: prompt, maxTargets: 1, autoApprove: autoApprove, project: project, nodeHint: paneTarget)
+            case .paneSmokeFallback:
+                noteScheduler("fallback engage \(paneTarget): pane/send + smoke (\(step.reason))")
+                let send = await paneSend(target: paneTarget, text: prompt, enter: true)
+                if send.contains("failed") {
+                    markRoute("fallback", ok: false, nodeHint: paneTarget)
+                } else {
+                    _ = await runSmoke(project: project)
+                    markRoute("fallback", ok: true, nodeHint: paneTarget)
+                }
+            }
+            lastAutopilotAtByTarget[paneTarget] = Date()
+            cycleResults.append("\(paneTarget):\(step.strategy.rawValue)")
+            maybeRetuneLane(target: paneTarget, route: "autopilot/run")
+            let delayMs = throttleForTarget(paneTarget).delayMs ?? actionDelayMs
             let ns = UInt64(max(0, delayMs) * 1_000_000)
             try? await Task.sleep(nanoseconds: ns)
         }
@@ -739,6 +756,28 @@ final class PanelClient: ObservableObject {
         }
     }
 
+    func buildCommutationPlan(route: String) -> [CommutationPlanStep] {
+        let ordered = rankedTargets(route: route)
+        let targets = Array(ordered.prefix(max(1, fanoutPerCycle)))
+        return targets.compactMap { pane in
+            if !isTargetEnabled(pane.target) { return nil }
+            let fluency = fluencyForTarget(pane.target, route: route)
+            let laneVal = lane(for: pane.target)
+            let strategy = chooseStrategy(for: pane.target, route: route)
+            let reason = strategy == .autopilot
+                ? "lane=\(laneVal.rawValue) fluency=\(fluency)%"
+                : "fallback: fluency=\(fluency)% < \(fallbackFluencyThreshold)%"
+            return CommutationPlanStep(
+                target: pane.target,
+                lane: laneVal,
+                fluency: fluency,
+                throughputBps: pane.throughputBps,
+                strategy: strategy,
+                reason: reason
+            )
+        }
+    }
+
     private func maybeRetuneLane(target: String, route: String) {
         guard autoTuneScheduler else { return }
         let stat = statsForTarget(target, route: route)
@@ -759,6 +798,18 @@ final class PanelClient: ObservableObject {
             setLane(for: target, lane: .secondary)
             noteScheduler("lane \(target): Quarantine -> Secondary (fluency \(fluency)%)")
         }
+    }
+
+    private func chooseStrategy(for target: String, route: String) -> ExecutionStrategy {
+        guard enableFallbackRouting else { return .autopilot }
+        let fluency = fluencyForTarget(target, route: route)
+        if fluency > 0 && fluency < fallbackFluencyThreshold {
+            return .paneSmokeFallback
+        }
+        if !capabilities.autopilot || !capabilities.smoke {
+            return .paneSmokeFallback
+        }
+        return .autopilot
     }
 
     private func laneRank(_ lane: LanePriority) -> Int {
