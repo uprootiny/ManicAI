@@ -131,6 +131,11 @@ struct DashboardView: View {
             Text("agitation \(client.agitationScore)")
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(client.agitationScore < 35 ? .green : (client.agitationScore < 65 ? .yellow : .red))
+            if client.panicMode {
+                Text("PANIC")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.red)
+            }
             Button("Refresh") {
                 Task { await client.refresh() }
             }
@@ -235,6 +240,7 @@ struct DashboardView: View {
                     }
                 }
                 .buttonStyle(.borderedProminent)
+                .disabled(client.panicMode)
             }
             GlassCard(title: "Scope Contract") {
                 TextField("Objective", text: $scopeObjective)
@@ -390,6 +396,29 @@ struct DashboardView: View {
                     }
                 }
                 .buttonStyle(.borderedProminent)
+                .disabled(client.panicMode)
+            }
+            GlassCard(title: "Panic + Lanes") {
+                if client.panicMode {
+                    Text("Read-only containment active: \(client.panicReason)")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.red)
+                } else {
+                    Text("Mutations enabled")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.green)
+                }
+                HStack {
+                    Button("Freeze All (Panic)") {
+                        client.engagePanic(reason: "manual panic button")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.red)
+                    Button("Resume") {
+                        client.clearPanic()
+                    }
+                    .buttonStyle(.bordered)
+                }
             }
         }
         .frame(maxWidth: 360)
@@ -415,6 +444,44 @@ struct DashboardView: View {
                                     .padding(8)
                                     .background(Color.black.opacity(0.24))
                                     .clipShape(RoundedRectangle(cornerRadius: 8))
+                                HStack {
+                                    Picker("Lane", selection: Binding(
+                                        get: { client.lane(for: pane.target) },
+                                        set: { client.setLane(for: pane.target, lane: $0) }
+                                    )) {
+                                        ForEach(LanePriority.allCases) { lane in
+                                            Text(lane.rawValue).tag(lane)
+                                        }
+                                    }
+                                    .pickerStyle(.segmented)
+                                }
+                                HStack {
+                                    let throttle = client.throttleForTarget(pane.target)
+                                    Stepper("cooldown \(Int(throttle.cooldownSec ?? client.autopilotCooldownSec))s", onIncrement: {
+                                        let current = throttle.cooldownSec ?? client.autopilotCooldownSec
+                                        client.setThrottle(for: pane.target, cooldownSec: min(120, current + 1), delayMs: throttle.delayMs)
+                                    }, onDecrement: {
+                                        let current = throttle.cooldownSec ?? client.autopilotCooldownSec
+                                        client.setThrottle(for: pane.target, cooldownSec: max(1, current - 1), delayMs: throttle.delayMs)
+                                    })
+                                    .font(.system(size: 10, design: .monospaced))
+                                }
+                                HStack {
+                                    let throttle = client.throttleForTarget(pane.target)
+                                    Stepper("delay \(Int(throttle.delayMs ?? client.actionDelayMs))ms", onIncrement: {
+                                        let current = throttle.delayMs ?? client.actionDelayMs
+                                        client.setThrottle(for: pane.target, cooldownSec: throttle.cooldownSec, delayMs: min(10000, current + 100))
+                                    }, onDecrement: {
+                                        let current = throttle.delayMs ?? client.actionDelayMs
+                                        client.setThrottle(for: pane.target, cooldownSec: throttle.cooldownSec, delayMs: max(100, current - 100))
+                                    })
+                                    .font(.system(size: 10, design: .monospaced))
+                                }
+                                Toggle("Enabled", isOn: Binding(
+                                    get: { client.isTargetEnabled(pane.target) },
+                                    set: { client.setTargetEnabled(pane.target, enabled: $0) }
+                                ))
+                                .font(.system(size: 10, design: .monospaced))
                             }
                             .padding(10)
                             .background(Color.white.opacity(0.03))

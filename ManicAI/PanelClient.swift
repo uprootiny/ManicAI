@@ -18,7 +18,12 @@ final class PanelClient: ObservableObject {
     @Published var actionsInCurrentScope: Int = 0
     @Published var agitationScore: Int = 0
     @Published var lastDelta: String = ""
+    @Published var panicMode: Bool = false
+    @Published var panicReason: String = ""
+    @Published var laneByTarget: [String: LanePriority] = [:]
+    @Published var throttleByTarget: [String: SessionThrottle] = [:]
     private var lastAutopilotAt: Date?
+    private var lastAutopilotAtByTarget: [String: Date] = [:]
     private var consecutiveErrors: Int = 0
     private var previousCandidateCount: Int = 0
     private var previousSmokeStatus: String = "unknown"
@@ -78,6 +83,10 @@ final class PanelClient: ObservableObject {
     }
 
     func runAutopilot(prompt: String, maxTargets: Int = 2, autoApprove: Bool = true, project: String? = nil) async {
+        if panicMode {
+            self.error = "Panic mode active. Mutations blocked."
+            return
+        }
         UserDefaults.standard.set(autopilotCooldownSec, forKey: "manicai.autopilotCooldownSec")
         UserDefaults.standard.set(actionDelayMs, forKey: "manicai.actionDelayMs")
         UserDefaults.standard.set(fanoutPerCycle, forKey: "manicai.fanoutPerCycle")
@@ -122,7 +131,12 @@ final class PanelClient: ObservableObject {
     }
 
     func runCommutedAutopilot(prompt: String, project: String?, autoApprove: Bool) async {
-        let targets = Array((state?.takeoverCandidates ?? []).prefix(max(1, fanoutPerCycle)))
+        if panicMode {
+            self.error = "Panic mode active. Mutations blocked."
+            return
+        }
+        let ordered = rankedTargets()
+        let targets = Array(ordered.prefix(max(1, fanoutPerCycle)))
         if targets.isEmpty {
             await runAutopilot(prompt: prompt, maxTargets: 1, autoApprove: autoApprove, project: project)
             return
@@ -130,9 +144,16 @@ final class PanelClient: ObservableObject {
 
         var cycleResults: [String] = []
         for pane in targets {
+            if !isTargetEnabled(pane.target) { continue }
+            let cooldown = throttleForTarget(pane.target).cooldownSec ?? autopilotCooldownSec
+            if let last = lastAutopilotAtByTarget[pane.target], Date().timeIntervalSince(last) < cooldown {
+                continue
+            }
             await runAutopilot(prompt: prompt, maxTargets: 1, autoApprove: autoApprove, project: project)
+            lastAutopilotAtByTarget[pane.target] = Date()
             cycleResults.append(pane.target)
-            let ns = UInt64(max(0, actionDelayMs) * 1_000_000)
+            let delayMs = throttleForTarget(pane.target).delayMs ?? actionDelayMs
+            let ns = UInt64(max(0, delayMs) * 1_000_000)
             try? await Task.sleep(nanoseconds: ns)
         }
         lastAction = "Commuted cycle over: \(cycleResults.joined(separator: ", "))"
@@ -156,6 +177,10 @@ final class PanelClient: ObservableObject {
     }
 
     func runSmoke(project: String?) async -> String {
+        if panicMode {
+            self.error = "Panic mode active. Mutations blocked."
+            return "panic-blocked"
+        }
         let selectedProject = project ?? state?.projects.first?.path
         guard let selectedProject else {
             error = "Smoke skipped: no project selected"
@@ -185,6 +210,10 @@ final class PanelClient: ObservableObject {
     }
 
     func runHealthyCycle(prompt: String, project: String?, autoApprove: Bool) async {
+        if panicMode {
+            self.error = "Panic mode active. Mutations blocked."
+            return
+        }
         guard completedCycles < max(1, scope.maxCycles) else {
             error = "Scope limit reached: max cycles \(scope.maxCycles)"
             return
@@ -213,6 +242,55 @@ final class PanelClient: ObservableObject {
         intentLatched = false
         latchedIntentChecksum = ""
         lastAction = "Cycle ledger reset"
+    }
+
+    func setLane(for target: String, lane: LanePriority) {
+        laneByTarget[target] = lane
+        if lane == .quarantine {
+            var throttle = throttleByTarget[target] ?? SessionThrottle()
+            throttle.enabled = false
+            throttleByTarget[target] = throttle
+        }
+    }
+
+    func lane(for target: String) -> LanePriority {
+        laneByTarget[target] ?? .secondary
+    }
+
+    func setThrottle(for target: String, cooldownSec: Double?, delayMs: Double?) {
+        var throttle = throttleByTarget[target] ?? SessionThrottle()
+        throttle.cooldownSec = cooldownSec
+        throttle.delayMs = delayMs
+        throttleByTarget[target] = throttle
+    }
+
+    func setTargetEnabled(_ target: String, enabled: Bool) {
+        var throttle = throttleByTarget[target] ?? SessionThrottle()
+        throttle.enabled = enabled
+        throttleByTarget[target] = throttle
+    }
+
+    func isTargetEnabled(_ target: String) -> Bool {
+        throttleForTarget(target).enabled && lane(for: target) != .quarantine
+    }
+
+    func throttleForTarget(_ target: String) -> SessionThrottle {
+        throttleByTarget[target] ?? SessionThrottle()
+    }
+
+    func engagePanic(reason: String = "manual") {
+        panicMode = true
+        panicReason = reason
+        for pane in state?.takeoverCandidates ?? [] {
+            setLane(for: pane.target, lane: .quarantine)
+        }
+        lastAction = "PANIC engaged (\(reason)). Read-only mode."
+    }
+
+    func clearPanic() {
+        panicMode = false
+        panicReason = ""
+        lastAction = "Panic cleared. Mutations re-enabled."
     }
 
     func latchIntent(_ text: String) {
@@ -387,6 +465,12 @@ final class PanelClient: ObservableObject {
             agitation += 15
         }
 
+        if panicMode {
+            score -= 5
+            notes.append("Panic mode active (read-only containment).")
+            agitation = max(0, agitation - 20)
+        }
+
         if actionsInCurrentScope > scope.attentionBudgetActions {
             score -= 15
             notes.append("Attention budget exceeded.")
@@ -432,5 +516,24 @@ final class PanelClient: ObservableObject {
         lastDelta = segments.joined(separator: " | ")
         previousCandidateCount = s.takeoverCandidates.count
         previousSmokeStatus = s.smoke.status
+    }
+
+    private func rankedTargets() -> [PaneInfo] {
+        let cands = state?.takeoverCandidates ?? []
+        return cands.sorted { a, b in
+            let la = laneRank(lane(for: a.target))
+            let lb = laneRank(lane(for: b.target))
+            if la != lb { return la < lb }
+            if a.throughputBps != b.throughputBps { return a.throughputBps > b.throughputBps }
+            return a.target < b.target
+        }
+    }
+
+    private func laneRank(_ lane: LanePriority) -> Int {
+        switch lane {
+        case .primary: return 0
+        case .secondary: return 1
+        case .quarantine: return 2
+        }
     }
 }

@@ -13,6 +13,8 @@ A styled macOS operator app for agent-heavy development environments.
 - Adds cadence profiles (`Stabilize`, `Throughput`, `Deep Work`) with throttled commutation controls
 - Supports scripted nudges (multi-step prompt sequence with per-step pause)
 - Enforces a cognitive hygiene layer: intent latch checksum, attention budget limits, agitation score, and healthy-cycle deltas
+- Adds per-target laneing (`Primary`/`Secondary`/`Quarantine`) and per-target cooldown/delay overrides
+- Adds global panic button: freeze all mutation actions while preserving read-only polling
 
 ## Run locally (macOS)
 

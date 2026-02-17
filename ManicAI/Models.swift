@@ -157,3 +157,16 @@ struct InteractionHealth {
     let label: String
     let notes: [String]
 }
+
+enum LanePriority: String, CaseIterable, Identifiable {
+    case primary = "Primary"
+    case secondary = "Secondary"
+    case quarantine = "Quarantine"
+    var id: String { rawValue }
+}
+
+struct SessionThrottle {
+    var cooldownSec: Double?
+    var delayMs: Double?
+    var enabled: Bool = true
+}
