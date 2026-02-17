@@ -107,3 +107,15 @@
   - breaker/degraded state
   - interaction health
   - top transform edges
+
+## Resource guardrails
+- In-memory bounds:
+  - prompt history ring buffer (capped)
+  - action log capped
+  - scheduler notes capped
+- Compute guardrails:
+  - debounced persistence writes
+  - debounced layer-edge recomputation
+  - sampled `api/state` service events (heartbeat throttled)
+- Disk/log wrangling:
+  - `scripts/cadence/wrangle_logs.sh` prunes old logs and enforces total size cap

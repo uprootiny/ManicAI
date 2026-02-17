@@ -83,10 +83,12 @@ Scripts in `scripts/cadence/`:
 - `daily_snapshot.sh` (daily state archive)
 - `weekly_benchmark_drift.py` (weekly drift report from snapshots)
 - `install_cron.sh` (installs all three rhythms into user crontab)
+- `wrangle_logs.sh` (retention + size cap for log folders)
 
 Example:
 
 ```bash
 cd /path/to/ManicAI
 ./scripts/cadence/install_cron.sh http://173.212.203.211:8788
+KEEP_DAYS=14 MAX_MB=256 ./scripts/cadence/wrangle_logs.sh
 ```

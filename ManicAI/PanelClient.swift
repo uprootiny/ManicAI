@@ -49,13 +49,22 @@ final class PanelClient: ObservableObject {
     @Published var profileSnapshotPath: String = ""
     @Published var profileSnapshotMarkdownPath: String = ""
     @Published var layerEdges: [LayerEdgeMetric] = []
+    @Published var eventBudgetSummary: String = ""
     private var lastAutopilotAt: Date?
     private var lastAutopilotAtByTarget: [String: Date] = [:]
     private var refreshQueued: Bool = false
     private var lastCapabilityScanAt: Date?
+    private var lastStateServiceEventAt: Date?
     private var consecutiveErrors: Int = 0
     private var previousCandidateCount: Int = 0
     private var previousSmokeStatus: String = "unknown"
+    private var persistTask: Task<Void, Never>?
+    private var recomputeTask: Task<Void, Never>?
+
+    private let maxPromptHistoryEntries = 2000
+    private let maxPersistedPromptEntries = 600
+    private let maxActionLogEntries = 200
+    private let maxSchedulerNotesEntries = 200
 
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
@@ -125,7 +134,10 @@ final class PanelClient: ObservableObject {
             consecutiveErrors = 0
             lastAction = "Refreshed \(baseURL.host ?? "unknown")"
             log("refresh ok: \(baseURL.absoluteString)")
-            recordTimelineEvent(kind: .service, route: "api/state", target: baseURL.host, text: "refresh ok")
+            if shouldRecordStateServiceEvent() {
+                recordTimelineEvent(kind: .service, route: "api/state", target: baseURL.host, text: "refresh ok")
+                lastStateServiceEventAt = Date()
+            }
             if shouldScanCapabilities() {
                 await detectCapabilities()
                 lastCapabilityScanAt = Date()
@@ -650,15 +662,17 @@ final class PanelClient: ObservableObject {
     private func log(_ message: String) {
         let ts = Self.logFormatter.string(from: Date())
         actionLog.insert("[\(ts)] \(message)", at: 0)
-        if actionLog.count > 80 { actionLog = Array(actionLog.prefix(80)) }
-        persistTelemetryMemory()
+        if actionLog.count > maxActionLogEntries { actionLog = Array(actionLog.prefix(maxActionLogEntries)) }
+        updateEventBudgetSummary()
+        queuePersistence()
     }
 
     private func noteScheduler(_ message: String) {
         let ts = Self.logFormatter.string(from: Date())
         schedulerNotes.insert("[\(ts)] \(message)", at: 0)
-        if schedulerNotes.count > 80 { schedulerNotes = Array(schedulerNotes.prefix(80)) }
-        persistTelemetryMemory()
+        if schedulerNotes.count > maxSchedulerNotesEntries { schedulerNotes = Array(schedulerNotes.prefix(maxSchedulerNotesEntries)) }
+        updateEventBudgetSummary()
+        queuePersistence()
     }
 
     private func mutate(path: String, payload: [String: Any], action: String, nodeHint: String? = nil) async -> String {
@@ -710,7 +724,7 @@ final class PanelClient: ObservableObject {
             recordBreakerOutcome(route: route, nodeHint: nodeHint, ok: ok)
         }
         recomputeDegradedMode()
-        persistTelemetryMemory()
+        queuePersistence()
     }
 
     func setTelemetryHalfLifeHours(_ hours: Int) {
@@ -720,11 +734,15 @@ final class PanelClient: ObservableObject {
     }
 
     func clearTelemetryMemory() {
+        persistTask?.cancel()
+        recomputeTask?.cancel()
         apiStatsByRoute = [:]
         apiStatsByNodeRoute = [:]
         actionLog = []
         schedulerNotes = []
         promptHistory = []
+        layerEdges = []
+        eventBudgetSummary = ""
         UserDefaults.standard.removeObject(forKey: Self.routeStatsKey)
         UserDefaults.standard.removeObject(forKey: Self.nodeStatsKey)
         UserDefaults.standard.removeObject(forKey: Self.actionLogKey)
@@ -798,8 +816,8 @@ final class PanelClient: ObservableObject {
         guard !ids.isEmpty else { return }
         promptHistory.removeAll { ids.contains($0.id) }
         cadenceReport = generateCadenceReport()
-        recomputeLayerEdges()
-        persistTelemetryMemory()
+        queueRecomputeLayerEdges()
+        queuePersistence()
         lastAction = "Deleted \(ids.count) prompt events"
     }
 
@@ -817,12 +835,10 @@ final class PanelClient: ObservableObject {
             )
             promptHistory.append(event)
         }
-        if promptHistory.count > 1000 {
-            promptHistory.removeFirst(promptHistory.count - 1000)
-        }
+        trimEventMemory()
         cadenceReport = generateCadenceReport()
-        recomputeLayerEdges()
-        persistTelemetryMemory()
+        queueRecomputeLayerEdges()
+        queuePersistence()
         lastAction = "Pasted \(clean.count) clip lines into \(target ?? "-")"
     }
 
@@ -862,20 +878,22 @@ final class PanelClient: ObservableObject {
 
         if let data = UserDefaults.standard.data(forKey: Self.actionLogKey),
            let decoded = try? decoder.decode([String].self, from: data) {
-            actionLog = Array(decoded.prefix(80))
+            actionLog = Array(decoded.prefix(maxActionLogEntries))
         }
         if let data = UserDefaults.standard.data(forKey: Self.schedulerNotesKey),
            let decoded = try? decoder.decode([String].self, from: data) {
-            schedulerNotes = Array(decoded.prefix(80))
+            schedulerNotes = Array(decoded.prefix(maxSchedulerNotesEntries))
         }
         if let data = UserDefaults.standard.data(forKey: Self.promptHistoryMemKey),
            let decoded = try? decoder.decode([PromptEvent].self, from: data) {
-            promptHistory = Array(decoded.suffix(400))
+            promptHistory = Array(decoded.suffix(maxPersistedPromptEntries))
         }
         cadenceReport = generateCadenceReport()
         recomputeLayerEdges()
+        trimEventMemory()
+        updateEventBudgetSummary()
         telemetryLoadedAt = now
-        persistTelemetryMemory()
+        queuePersistence()
     }
 
     private func persistTelemetryMemory() {
@@ -888,13 +906,13 @@ final class PanelClient: ObservableObject {
         if let data = try? encoder.encode(nodeStored) {
             UserDefaults.standard.set(data, forKey: Self.nodeStatsKey)
         }
-        if let data = try? encoder.encode(Array(actionLog.prefix(80))) {
+        if let data = try? encoder.encode(Array(actionLog.prefix(maxActionLogEntries))) {
             UserDefaults.standard.set(data, forKey: Self.actionLogKey)
         }
-        if let data = try? encoder.encode(Array(schedulerNotes.prefix(80))) {
+        if let data = try? encoder.encode(Array(schedulerNotes.prefix(maxSchedulerNotesEntries))) {
             UserDefaults.standard.set(data, forKey: Self.schedulerNotesKey)
         }
-        if let data = try? encoder.encode(Array(promptHistory.suffix(400))) {
+        if let data = try? encoder.encode(Array(promptHistory.suffix(maxPersistedPromptEntries))) {
             UserDefaults.standard.set(data, forKey: Self.promptHistoryMemKey)
         }
     }
@@ -1150,32 +1168,28 @@ final class PanelClient: ObservableObject {
         guard !trimmed.isEmpty else { return }
         let kind = classifyPromptKind(trimmed)
         let event = PromptEvent(id: UUID(), ts: Date().timeIntervalSince1970, route: route, target: target, prompt: trimmed, kind: kind, summary: nil)
-        promptHistory.append(event)
-        if promptHistory.count > 1000 {
-            promptHistory.removeFirst(promptHistory.count - 1000)
-        }
+        appendEvent(event)
         cadenceReport = generateCadenceReport()
-        recomputeLayerEdges()
-        persistTelemetryMemory()
+        queueRecomputeLayerEdges()
+        queuePersistence()
     }
 
     private func recordTimelineEvent(kind: TimelineKind, route: String, target: String?, text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
         let ev = PromptEvent(
             id: UUID(),
             ts: Date().timeIntervalSince1970,
             route: route,
             target: target,
-            prompt: text,
+            prompt: trimmed,
             kind: kind,
-            summary: text
+            summary: trimmed
         )
-        promptHistory.append(ev)
-        if promptHistory.count > 1000 {
-            promptHistory.removeFirst(promptHistory.count - 1000)
-        }
+        appendEvent(ev)
         cadenceReport = generateCadenceReport()
-        recomputeLayerEdges()
-        persistTelemetryMemory()
+        queueRecomputeLayerEdges()
+        queuePersistence()
     }
 
     private func classifyPromptKind(_ prompt: String) -> TimelineKind {
@@ -1231,6 +1245,47 @@ final class PanelClient: ObservableObject {
 
     private func recomputeLayerEdges() {
         layerEdges = TimelineEngine.layerEdges(promptHistory)
+        updateEventBudgetSummary()
+    }
+
+    private func appendEvent(_ ev: PromptEvent) {
+        promptHistory.append(ev)
+        trimEventMemory()
+    }
+
+    private func trimEventMemory() {
+        if promptHistory.count > maxPromptHistoryEntries {
+            promptHistory.removeFirst(promptHistory.count - maxPromptHistoryEntries)
+        }
+    }
+
+    private func queuePersistence() {
+        persistTask?.cancel()
+        persistTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            await MainActor.run {
+                self?.persistTelemetryMemory()
+            }
+        }
+    }
+
+    private func queueRecomputeLayerEdges() {
+        recomputeTask?.cancel()
+        recomputeTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            await MainActor.run {
+                self?.recomputeLayerEdges()
+            }
+        }
+    }
+
+    private func updateEventBudgetSummary() {
+        eventBudgetSummary = "events \(promptHistory.count)/\(maxPromptHistoryEntries) | logs \(actionLog.count)/\(maxActionLogEntries) | notes \(schedulerNotes.count)/\(maxSchedulerNotesEntries)"
+    }
+
+    private func shouldRecordStateServiceEvent() -> Bool {
+        guard let last = lastStateServiceEventAt else { return true }
+        return Date().timeIntervalSince(last) >= 30
     }
 
     private func currentSessionProfileSnapshot() -> SessionProfileSnapshot {

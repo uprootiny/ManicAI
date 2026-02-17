@@ -629,6 +629,11 @@ struct DashboardView: View {
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundStyle(.secondary)
                 }
+                if !client.eventBudgetSummary.isEmpty {
+                    Text(client.eventBudgetSummary)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
                 Button("Clear Telemetry Memory") {
                     client.clearTelemetryMemory()
                 }
