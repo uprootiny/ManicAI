@@ -1013,6 +1013,7 @@ struct DashboardView: View {
                 let events = timelineEventsForSelectedTrack
                 if !events.isEmpty {
                     let maxIdx = max(0, events.count - 1)
+                    let cursorSliderUpper = max(1, maxIdx)
                     HStack {
                         Button("Prev") { timelineCursor = max(0, timelineCursor - 1) }
                             .buttonStyle(.bordered)
@@ -1038,8 +1039,8 @@ struct DashboardView: View {
                     }
                     Slider(value: Binding(
                         get: { Double(min(timelineCursor, maxIdx)) },
-                        set: { timelineCursor = Int($0.rounded()) }
-                    ), in: 0...Double(maxIdx), step: 1)
+                        set: { timelineCursor = min(maxIdx, Int($0.rounded())) }
+                    ), in: 0...Double(cursorSliderUpper), step: 1)
                     HStack {
                         Text("window \(timelineWindow)")
                         Slider(value: Binding(
