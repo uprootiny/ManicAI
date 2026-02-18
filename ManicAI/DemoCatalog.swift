@@ -12,6 +12,9 @@ struct DemoProject: Identifiable {
 }
 
 enum DemoCatalog {
+    static let defaultControlPlaneBase = "http://173.212.203.211:8788"
+    static let defaultCoggyBase = "http://173.212.203.211:8421"
+
     static let projects: [DemoProject] = [
         DemoProject(
             id: "hyle",
@@ -29,7 +32,7 @@ enum DemoCatalog {
             summary: "Multi-role cognitive substrate with role panes and grounding traces.",
             macSpinup: "cd ~/coggy && ./coggy start",
             linuxSpinup: "cd /home/uprootiny/coggy && ./coggy start",
-            diagnostics: "cd /home/uprootiny/coggy && ./coggy doctor --json && curl -s http://127.0.0.1:8421/api/openrouter/status | jq",
+            diagnostics: "cd /home/uprootiny/coggy && ./coggy doctor --json && curl -s \(defaultCoggyBase)/api/openrouter/status | jq",
             smoke: "cd /home/uprootiny/coggy && ./coggy smoke",
             defaultPrompt: "run smoke checks, fix first blocker, rerun smoke, report concise status"
         ),
@@ -39,8 +42,8 @@ enum DemoCatalog {
             summary: "Operator web shell for takeover candidates, blockers, and autopilot loops.",
             macSpinup: "make hyperpanel",
             linuxSpinup: "cd /home/uprootiny/dec27/hyle && make hyperpanel",
-            diagnostics: "curl -s http://127.0.0.1:8788/api/state | jq '{sessions:(.sessions|length),candidates:(.takeover_candidates|length),smoke:.smoke.status}'",
-            smoke: "curl -s -X POST http://127.0.0.1:8788/api/autopilot/run -H 'content-type: application/json' --data '{\"prompt\":\"run smoke checks, fix first blocker, rerun smoke, report concise status\",\"max_targets\":2,\"auto_approve\":true}'",
+            diagnostics: "curl -s \(defaultControlPlaneBase)/api/state | jq '{sessions:(.sessions|length),candidates:(.takeover_candidates|length),smoke:.smoke.status}'",
+            smoke: "curl -s -X POST \(defaultControlPlaneBase)/api/autopilot/run -H 'content-type: application/json' --data '{\"prompt\":\"run smoke checks, fix first blocker, rerun smoke, report concise status\",\"max_targets\":2,\"auto_approve\":true}'",
             defaultPrompt: "run smoke checks, fix first blocker, rerun smoke, report concise status"
         ),
         DemoProject(
@@ -79,12 +82,12 @@ enum DemoCatalog {
             summary: "Dashboard-first project lane for observability UI, telemetry, and operator workflows.",
             macSpinup: "cd ~/webdash && npm run dev  # if present",
             linuxSpinup: "find /home/uprootiny -maxdepth 5 -type d -name webdash; cd <webdash-path> && npm test || make smoke",
-            diagnostics: "curl -s http://127.0.0.1:8788/api/state | jq '{sessions:(.sessions|length),candidates:(.takeover_candidates|length)}'",
+            diagnostics: "curl -s \(defaultControlPlaneBase)/api/state | jq '{sessions:(.sessions|length),candidates:(.takeover_candidates|length)}'",
             smoke: "npm test || make smoke || ./scripts/smoke_feedback.sh",
             defaultPrompt: "run smoke checks, fix first blocker, rerun smoke, report concise status"
         )
     ]
 
     static let freeModelCatalogHint = "./scripts/playtests/openrouter_free_catalog.py --out-dir ."
-    static let providerDiagnosticsHint = "cd /home/uprootiny/coggy && ./coggy doctor --json && curl -s http://127.0.0.1:8421/api/openrouter/models | jq"
+    static let providerDiagnosticsHint = "cd /home/uprootiny/coggy && ./coggy doctor --json && curl -s \(defaultCoggyBase)/api/openrouter/models | jq"
 }
