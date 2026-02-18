@@ -164,6 +164,10 @@ struct DashboardView: View {
             .task {
                 endpointInput = client.baseURL.absoluteString
                 await client.refresh()
+                if client.state == nil {
+                    await client.probeAndSelectBestEndpoint()
+                    endpointInput = client.baseURL.absoluteString
+                }
                 if selectedProject.isEmpty {
                     selectedProject = client.state?.projects.first?.path ?? ""
                 }
