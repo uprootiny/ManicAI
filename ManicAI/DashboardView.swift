@@ -314,7 +314,7 @@ struct DashboardView: View {
                 TextField("Project path for autopilot", text: $selectedProject)
                     .textFieldStyle(.roundedBorder)
                 Toggle("Use commutation (round-robin + delay)", isOn: $useCommutation)
-                Button("Run takeover + smoke") {
+                Button(runLoopButtonLabel) {
                     Task {
                         switch opsMode {
                         case .verify:
@@ -345,10 +345,9 @@ struct DashboardView: View {
                     }
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(client.panicMode)
-                .disabled(!(client.capabilities.autopilot && client.capabilities.smoke))
-                if !autopilotReady {
-                    Text(autopilotDisabledReason)
+                .disabled(!runLoopReady)
+                if !runLoopReady {
+                    Text(runLoopDisabledReason)
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundStyle(.yellow)
                 }
@@ -1474,8 +1473,16 @@ struct DashboardView: View {
         }
     }
 
-    private var autopilotReady: Bool {
-        !client.panicMode && client.capabilities.autopilot && client.capabilities.smoke
+    private var runLoopReady: Bool {
+        runLoopDisabledReason.isEmpty
+    }
+
+    private var runLoopButtonLabel: String {
+        switch opsMode {
+        case .verify: return "Refresh + Reassess"
+        case .plan: return "Diagnose Blocker"
+        case .act: return "Run Bounded Loop"
+        }
     }
 
     private var topNodeFluencyKeys: [String] {
@@ -1546,12 +1553,21 @@ struct DashboardView: View {
         return (duplex, vessel, crystal, total)
     }
 
-    private var autopilotDisabledReason: String {
+    private var runLoopDisabledReason: String {
+        if opsMode == .verify {
+            return ""
+        }
         if client.panicMode {
             return "Panic freeze is active. Resume to allow actions."
         }
         if !client.capabilities.autopilot || !client.capabilities.smoke {
             return "Remote API is missing required endpoints (/api/autopilot/run and /api/smoke)."
+        }
+        if opsMode == .act && useCommutation && client.degradedMode {
+            return "Degraded mode is active; commuted autopilot is paused. Disable commutation or reset breakers."
+        }
+        if let reason = client.autopilotPreflightReason() {
+            return reason
         }
         return ""
     }

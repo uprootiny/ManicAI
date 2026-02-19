@@ -237,6 +237,32 @@ final class PanelClient: ObservableObject {
         }
     }
 
+    func autopilotPreflightReason(nodeHint: String? = nil) -> String? {
+        if panicMode {
+            return "Panic mode active. Mutations blocked."
+        }
+        if let deny = denyReason(route: "autopilot/run", nodeHint: nodeHint) {
+            return deny
+        }
+        if scope.requireIntentLatch {
+            let checksum = checksumForIntent(scope.intentLatch)
+            if !intentLatched || checksum.isEmpty || checksum != latchedIntentChecksum {
+                return "Intent not latched. Update latch before action."
+            }
+        }
+        if actionsInCurrentScope >= max(1, scope.attentionBudgetActions) {
+            return "Attention budget exceeded (\(scope.attentionBudgetActions) actions). Re-anchor intent."
+        }
+        if let last = lastAutopilotAt {
+            let gap = Date().timeIntervalSince(last)
+            if gap < autopilotCooldownSec {
+                let remain = Int((autopilotCooldownSec - gap).rounded(.up))
+                return "Autopilot throttled: wait \(remain)s"
+            }
+        }
+        return nil
+    }
+
     func runCommutedAutopilot(prompt: String, project: String?, autoApprove: Bool) async {
         if panicMode {
             self.error = "Panic mode active. Mutations blocked."
