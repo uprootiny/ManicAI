@@ -74,6 +74,7 @@ final class PanelClient: ObservableObject {
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
     private let session: URLSession
+    private let allowLocalFallback: Bool
     private static let logFormatter = ISO8601DateFormatter()
     private static let routeStatsKey = "manicai.telemetry.routeStats.v1"
     private static let nodeStatsKey = "manicai.telemetry.nodeStats.v1"
@@ -91,8 +92,7 @@ final class PanelClient: ObservableObject {
         "http://hyperstitious.art:8788",
         "http://149.102.153.201:8788",
         "http://173.212.203.211:9801",
-        "http://173.212.203.211:9750",
-        "http://127.0.0.1:8788"
+        "http://173.212.203.211:9750"
     ]
 
     init() {
@@ -101,8 +101,18 @@ final class PanelClient: ObservableObject {
         cfg.timeoutIntervalForResource = 5.0
         cfg.requestCachePolicy = .reloadIgnoringLocalCacheData
         self.session = URLSession(configuration: cfg)
+        self.allowLocalFallback = ProcessInfo.processInfo.environment["MANICAI_ALLOW_LOCAL"] == "1"
         let saved = UserDefaults.standard.string(forKey: "manicai.baseURL")
-        self.baseURL = URL(string: saved ?? "http://173.212.203.211:8788")!
+        if
+            let saved,
+            let savedURL = URL(string: saved),
+            !isLoopbackHost(savedURL.host),
+            savedURL.scheme != nil
+        {
+            self.baseURL = savedURL
+        } else {
+            self.baseURL = URL(string: "http://173.212.203.211:8788")!
+        }
         if let cooldown = UserDefaults.standard.object(forKey: "manicai.autopilotCooldownSec") as? Double {
             autopilotCooldownSec = cooldown
         }
@@ -595,22 +605,41 @@ final class PanelClient: ObservableObject {
 
     private func endpointCandidates() -> [URL] {
         var urls: [URL] = []
-        let seeds = endpointPresets + [baseURL.absoluteString]
-        for seed in seeds {
-            if let url = URL(string: seed) {
+        var seen: Set<String> = []
+
+        func appendUnique(_ raw: String) {
+            guard let url = URL(string: raw), let scheme = url.scheme, let host = url.host else { return }
+            if !allowLocalFallback && isLoopbackHost(host) { return }
+            let key = "\(scheme)://\(host):\(url.port ?? (scheme == "https" ? 443 : 80))"
+            if seen.insert(key).inserted {
                 urls.append(url)
             }
+        }
+
+        for seed in endpointPresets {
+            appendUnique(seed)
+        }
+        appendUnique(baseURL.absoluteString)
+        if allowLocalFallback {
+            appendUnique("http://127.0.0.1:8788")
         }
         let hosts = ["173.212.203.211", "149.102.153.201", "hyle.hyperstitious.org", "hyperstitious.art"]
         let ports = [8788, 9801, 9750]
         for host in hosts {
             for port in ports {
-                if let url = URL(string: "http://\(host):\(port)") {
-                    urls.append(url)
-                }
+                appendUnique("http://\(host):\(port)")
             }
         }
-        return Array(Set(urls)).sorted { $0.absoluteString < $1.absoluteString }
+        return urls
+    }
+
+    private static func isLoopbackHost(_ host: String?) -> Bool {
+        guard let host else { return false }
+        return host == "127.0.0.1" || host == "localhost" || host == "::1"
+    }
+
+    private func isLoopbackHost(_ host: String?) -> Bool {
+        Self.isLoopbackHost(host)
     }
 
     private func pathURL(_ path: String) -> URL {
