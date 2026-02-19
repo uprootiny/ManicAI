@@ -106,7 +106,7 @@ final class PanelClient: ObservableObject {
         if
             let saved,
             let savedURL = URL(string: saved),
-            !isLoopbackHost(savedURL.host),
+            !Self.isLoopbackHost(savedURL.host),
             savedURL.scheme != nil
         {
             self.baseURL = savedURL
