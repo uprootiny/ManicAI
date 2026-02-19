@@ -70,6 +70,9 @@ jobs:
             brew install xcodegen
           fi
 
+      - name: Guard user-facing endpoints
+        run: ./scripts/check_no_localhost.sh
+
       - name: Legacy deployment compatibility
         if: matrix.target.legacy_compat == true
         run: |
