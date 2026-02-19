@@ -88,9 +88,13 @@ final class PanelClient: ObservableObject {
 
     let endpointPresets: [String] = [
         "http://173.212.203.211:8788",
+        "http://173.212.203.211:8421",
         "http://hyle.hyperstitious.org:8788",
+        "http://hyle.hyperstitious.org:8421",
         "http://hyperstitious.art:8788",
+        "http://hyperstitious.art:8421",
         "http://149.102.153.201:8788",
+        "http://149.102.153.201:8421",
         "http://173.212.203.211:9801",
         "http://173.212.203.211:9750"
     ]
@@ -587,11 +591,14 @@ final class PanelClient: ObservableObject {
     private func probe(_ url: URL) async -> SurfaceProbe {
         let healthURL = url.appending(path: "health")
         let stateURL = url.appending(path: "api/state")
+        let tmuxURL = url.appending(path: "tmux")
         var healthy = false
         var stateReachable = false
+        var stateLatencyMs: Int?
         var sessions = 0
         var candidates = 0
         var smoke = "unknown"
+        var tmuxReachable = false
         var err: String?
 
         do {
@@ -604,8 +611,10 @@ final class PanelClient: ObservableObject {
         }
 
         do {
+            let t0 = Date()
             let (stateData, response) = try await session.data(from: stateURL)
             try assertHTTP(response)
+            stateLatencyMs = Int((Date().timeIntervalSince(t0) * 1000).rounded())
             if let raw = try? JSONSerialization.jsonObject(with: stateData) as? [String: Any] {
                 stateReachable = true
                 sessions = (raw["sessions"] as? [Any])?.count ?? 0
@@ -618,13 +627,27 @@ final class PanelClient: ObservableObject {
             err = "state: \(error.localizedDescription)"
         }
 
+        do {
+            let (tmuxData, response) = try await session.data(from: tmuxURL)
+            try assertHTTP(response)
+            let html = String(data: tmuxData, encoding: .utf8) ?? ""
+            tmuxReachable = html.contains("<html") || html.contains("TMUX")
+        } catch {
+            if err == nil {
+                err = "tmux: \(error.localizedDescription)"
+            }
+        }
+
         return SurfaceProbe(
             baseURL: url,
             healthy: healthy,
             stateReachable: stateReachable,
+            stateLatencyMs: stateLatencyMs,
             sessions: sessions,
             candidates: candidates,
             smokeStatus: smoke,
+            tmuxReachable: tmuxReachable,
+            tmuxURL: tmuxURL,
             error: err
         )
     }
@@ -649,8 +672,8 @@ final class PanelClient: ObservableObject {
         if allowLocalFallback {
             appendUnique("http://127.0.0.1:8788")
         }
-        let hosts = ["173.212.203.211", "149.102.153.201", "hyle.hyperstitious.org", "hyperstitious.art"]
-        let ports = [8788, 9801, 9750]
+        let hosts = ["173.212.203.211", "149.102.153.201", "hyle.hyperstitious.org", "hyperstitious.art", "hypersticial.art"]
+        let ports = [8788, 8421, 9801, 9750]
         for host in hosts {
             for port in ports {
                 appendUnique("http://\(host):\(port)")

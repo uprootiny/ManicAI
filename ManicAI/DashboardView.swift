@@ -1418,9 +1418,27 @@ struct DashboardView: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(probe.baseURL.absoluteString)
                                     .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                Text("state=\(probe.stateReachable ? "ok" : "fail") health=\(probe.healthy ? "ok" : "fail") sessions=\(probe.sessions) candidates=\(probe.candidates) smoke=\(probe.smokeStatus)")
+                                Text("state=\(probe.stateReachable ? "ok" : "fail") health=\(probe.healthy ? "ok" : "fail") tmux=\(probe.tmuxReachable ? "ok" : "fail") sessions=\(probe.sessions) candidates=\(probe.candidates) smoke=\(probe.smokeStatus)")
                                     .font(.system(size: 10, design: .monospaced))
                                     .foregroundStyle(.secondary)
+                                if let ms = probe.stateLatencyMs {
+                                    Text("state_latency=\(ms)ms")
+                                        .font(.system(size: 10, design: .monospaced))
+                                        .foregroundStyle(.secondary)
+                                }
+                                HStack {
+                                    Button("Use") {
+                                        endpointInput = probe.baseURL.absoluteString
+                                        client.choosePreset(probe.baseURL.absoluteString)
+                                        Task { await client.refresh() }
+                                    }
+                                    .buttonStyle(.bordered)
+                                    Button("Open tmux") {
+                                        openURL(probe.tmuxURL)
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .disabled(!probe.tmuxReachable)
+                                }
                                 if let e = probe.error {
                                     Text(e)
                                         .font(.system(size: 10, design: .monospaced))

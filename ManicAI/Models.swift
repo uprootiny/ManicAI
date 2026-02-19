@@ -135,9 +135,12 @@ struct SurfaceProbe: Identifiable {
     let baseURL: URL
     let healthy: Bool
     let stateReachable: Bool
+    let stateLatencyMs: Int?
     let sessions: Int
     let candidates: Int
     let smokeStatus: String
+    let tmuxReachable: Bool
+    let tmuxURL: URL
     let error: String?
 }
 
