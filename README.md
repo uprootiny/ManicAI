@@ -33,6 +33,11 @@ open ManicAI.xcodeproj
 
 Workflow: `.github/workflows/build-macos.yml`
 
+Download portal:
+
+- `docs/download/index.html` (deploy this at `manicai.hypersticial.art`)
+- Always resolves latest healthy GitHub Actions artifacts for macOS targets.
+
 Derived from the existing macOS build pipeline patterns in `uprootiny/Flycut`, adapted for:
 
 - dual target matrix:
