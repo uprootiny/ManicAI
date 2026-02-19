@@ -136,6 +136,8 @@ struct SurfaceProbe: Identifiable {
     let healthy: Bool
     let stateReachable: Bool
     let stateLatencyMs: Int?
+    let stateKind: String
+    let stateTurn: Int?
     let sessions: Int
     let candidates: Int
     let smokeStatus: String

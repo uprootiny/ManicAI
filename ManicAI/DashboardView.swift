@@ -1418,11 +1418,16 @@ struct DashboardView: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(probe.baseURL.absoluteString)
                                     .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                Text("state=\(probe.stateReachable ? "ok" : "fail") health=\(probe.healthy ? "ok" : "fail") tmux=\(probe.tmuxReachable ? "ok" : "fail") sessions=\(probe.sessions) candidates=\(probe.candidates) smoke=\(probe.smokeStatus)")
+                                Text("state=\(probe.stateReachable ? "ok" : "fail") kind=\(probe.stateKind) health=\(probe.healthy ? "ok" : "fail") tmux=\(probe.tmuxReachable ? "ok" : "fail") sessions=\(probe.sessions) candidates=\(probe.candidates) smoke=\(probe.smokeStatus)")
                                     .font(.system(size: 10, design: .monospaced))
                                     .foregroundStyle(.secondary)
                                 if let ms = probe.stateLatencyMs {
                                     Text("state_latency=\(ms)ms")
+                                        .font(.system(size: 10, design: .monospaced))
+                                        .foregroundStyle(.secondary)
+                                }
+                                if let turn = probe.stateTurn {
+                                    Text("turn=\(turn)")
                                         .font(.system(size: 10, design: .monospaced))
                                         .foregroundStyle(.secondary)
                                 }

@@ -595,6 +595,8 @@ final class PanelClient: ObservableObject {
         var healthy = false
         var stateReachable = false
         var stateLatencyMs: Int?
+        var stateKind = "unknown"
+        var stateTurn: Int?
         var sessions = 0
         var candidates = 0
         var smoke = "unknown"
@@ -617,10 +619,19 @@ final class PanelClient: ObservableObject {
             stateLatencyMs = Int((Date().timeIntervalSince(t0) * 1000).rounded())
             if let raw = try? JSONSerialization.jsonObject(with: stateData) as? [String: Any] {
                 stateReachable = true
-                sessions = (raw["sessions"] as? [Any])?.count ?? 0
-                candidates = (raw["takeover_candidates"] as? [Any])?.count ?? 0
-                if let smokeMap = raw["smoke"] as? [String: Any] {
-                    smoke = String(describing: smokeMap["status"] ?? "unknown")
+                if raw["sessions"] is [Any] || raw["takeover_candidates"] is [Any] {
+                    stateKind = "hyperpanel"
+                    sessions = (raw["sessions"] as? [Any])?.count ?? 0
+                    candidates = (raw["takeover_candidates"] as? [Any])?.count ?? 0
+                    if let smokeMap = raw["smoke"] as? [String: Any] {
+                        smoke = String(describing: smokeMap["status"] ?? "unknown")
+                    }
+                } else if raw["atoms"] is [String: Any] || raw["turn"] != nil {
+                    stateKind = "coggy"
+                    stateTurn = raw["turn"] as? Int
+                    sessions = 1
+                    candidates = 0
+                    smoke = "n/a"
                 }
             }
         } catch {
@@ -643,6 +654,8 @@ final class PanelClient: ObservableObject {
             healthy: healthy,
             stateReachable: stateReachable,
             stateLatencyMs: stateLatencyMs,
+            stateKind: stateKind,
+            stateTurn: stateTurn,
             sessions: sessions,
             candidates: candidates,
             smokeStatus: smoke,
