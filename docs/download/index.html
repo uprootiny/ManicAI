@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ManicAI Downloads</title>
+  <style>
+    :root {
+      --bg: #0a0f1a;
+      --panel: #111a2a;
+      --text: #e8f0ff;
+      --muted: #8ea1c2;
+      --ok: #42d392;
+      --warn: #f6c453;
+      --accent: #5ab0ff;
+      --card: rgba(22, 30, 48, 0.85);
+      --border: rgba(255,255,255,0.12);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      color: var(--text);
+      background: radial-gradient(1200px 600px at 20% 10%, #11233d, var(--bg));
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+    .wrap {
+      width: min(980px, 100%);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: var(--card);
+      backdrop-filter: blur(8px);
+      box-shadow: 0 20px 80px rgba(0,0,0,0.35);
+      overflow: hidden;
+    }
+    header {
+      padding: 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    h1 { margin: 0; font-size: 18px; letter-spacing: 0.04em; }
+    .sub { color: var(--muted); font-size: 12px; }
+    .body { padding: 20px; display: grid; gap: 16px; }
+    .status {
+      padding: 12px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      font-size: 13px;
+    }
+    .ok { color: var(--ok); }
+    .warn { color: var(--warn); }
+    .row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      align-items: center;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--panel);
+    }
+    .name { font-size: 13px; }
+    .meta { color: var(--muted); font-size: 11px; margin-top: 4px; }
+    .btn {
+      color: #061321;
+      background: var(--accent);
+      border: none;
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-weight: 700;
+      text-decoration: none;
+      font-size: 12px;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+    .btn.secondary {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--border);
+      font-weight: 600;
+    }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    footer { padding: 14px 20px; border-top: 1px solid var(--border); color: var(--muted); font-size: 11px; }
+    code { color: #b9e1ff; }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <header>
+      <div>
+        <h1>ManicAI Downloads</h1>
+        <div class="sub">Always points at the latest healthy GitHub Actions build.</div>
+      </div>
+      <div class="actions">
+        <button id="refresh" class="btn secondary">Refresh</button>
+        <a id="runLinkTop" class="btn secondary" href="#" target="_blank" rel="noreferrer">Open Run</a>
+      </div>
+    </header>
+    <section class="body">
+      <div id="status" class="status">Loading latest successful build…</div>
+      <div id="artifacts"></div>
+    </section>
+    <footer>
+      Source: <code>uprootiny/ManicAI</code> workflow <code>build-macos.yml</code>.
+    </footer>
+  </main>
+
+  <script>
+    const OWNER = "uprootiny";
+    const REPO = "ManicAI";
+    const WORKFLOW = "build-macos.yml";
+    const BRANCH = "master";
+
+    const statusEl = document.getElementById("status");
+    const listEl = document.getElementById("artifacts");
+    const runTop = document.getElementById("runLinkTop");
+
+    const preferredOrder = [
+      "ManicAI-dmg-tahoe-compat",
+      "ManicAI-zip-tahoe-compat",
+      "ManicAI-app-tahoe-compat",
+      "ManicAI-dmg-intel-13_0",
+      "ManicAI-zip-intel-13_0",
+      "ManicAI-app-intel-13_0",
+      "ManicAI-dmg-legacy-10_11",
+      "ManicAI-zip-legacy-10_11",
+      "ManicAI-app-legacy-10_11",
+      "ManicAI-dmg-tahoe-compat-notarized",
+      "ManicAI-zip-tahoe-compat-notarized",
+      "ManicAI-dmg-intel-13_0-notarized",
+      "ManicAI-zip-intel-13_0-notarized"
+    ];
+
+    function nightlyLink(runId, artifactName) {
+      return `https://nightly.link/${OWNER}/${REPO}/actions/runs/${runId}/${encodeURIComponent(artifactName)}.zip`;
+    }
+
+    function sortArtifacts(items) {
+      const rank = new Map(preferredOrder.map((n, i) => [n, i]));
+      return [...items].sort((a, b) => (rank.get(a.name) ?? 999) - (rank.get(b.name) ?? 999) || a.name.localeCompare(b.name));
+    }
+
+    async function fetchJSON(url) {
+      const r = await fetch(url, { headers: { "Accept": "application/vnd.github+json" } });
+      if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+      return r.json();
+    }
+
+    async function loadLatest() {
+      listEl.innerHTML = "";
+      statusEl.textContent = "Loading latest successful build…";
+      statusEl.className = "status";
+
+      const runsUrl = `https://api.github.com/repos/${OWNER}/${REPO}/actions/workflows/${WORKFLOW}/runs?branch=${encodeURIComponent(BRANCH)}&status=success&per_page=10`;
+      const runsDoc = await fetchJSON(runsUrl);
+      const run = (runsDoc.workflow_runs || []).find(r => r.conclusion === "success");
+      if (!run) throw new Error("No successful build run found.");
+
+      const artifactsUrl = `https://api.github.com/repos/${OWNER}/${REPO}/actions/runs/${run.id}/artifacts?per_page=100`;
+      const artifactsDoc = await fetchJSON(artifactsUrl);
+      const artifacts = sortArtifacts((artifactsDoc.artifacts || []).filter(a => !a.expired));
+
+      runTop.href = run.html_url;
+      statusEl.innerHTML = `<span class="ok">healthy build:</span> run <code>${run.id}</code> · ${new Date(run.updated_at).toLocaleString()} · <a class="sub" href="${run.html_url}" target="_blank" rel="noreferrer">GitHub Actions</a>`;
+
+      if (!artifacts.length) {
+        statusEl.innerHTML += ` <span class="warn">(no artifacts listed)</span>`;
+        return;
+      }
+
+      for (const a of artifacts) {
+        const row = document.createElement("div");
+        row.className = "row";
+        row.innerHTML = `
+          <div>
+            <div class="name">${a.name}</div>
+            <div class="meta">size: ${Math.round((a.size_in_bytes || 0) / 1024 / 1024)} MB · updated: ${new Date(a.updated_at).toLocaleString()}</div>
+          </div>
+          <div class="actions">
+            <a class="btn" href="${nightlyLink(run.id, a.name)}" target="_blank" rel="noreferrer">Download</a>
+          </div>
+        `;
+        listEl.appendChild(row);
+      }
+    }
+
+    async function refresh() {
+      try {
+        await loadLatest();
+      } catch (err) {
+        statusEl.className = "status warn";
+        statusEl.innerHTML = `Failed to load latest build: <code>${String(err.message || err)}</code>. <a href="https://github.com/${OWNER}/${REPO}/actions/workflows/${WORKFLOW}" target="_blank" rel="noreferrer">Open workflow</a>`;
+      }
+    }
+
+    document.getElementById("refresh").addEventListener("click", refresh);
+    refresh();
+  </script>
+</body>
+</html>
