@@ -221,3 +221,7 @@ M4: Operator efficiency
 - Should `Act` mode require a per-session temporary arm/disarm toggle?
 - Should `PRESSURE` auto-force `Plan` mode after threshold duration?
 - Which timeline tracks should be default-visible for first-run operators?
+
+## 17) Critical Review Companion
+
+- Adversarial critique + remediation log: `docs/UX_ENGINEERING_CRITIQUE.md`
