@@ -91,6 +91,13 @@ struct DashboardView: View {
         var id: String { rawValue }
     }
 
+    struct RecenteringPrompt: Identifiable {
+        let id: String
+        let label: String
+        let symptom: String
+        let body: String
+    }
+
     @StateObject private var client = PanelClient()
     @State private var autopilotPrompt = "run smoke checks, fix first blocker, rerun smoke, report concise status"
     @State private var opsMode: OpsMode = .verify
@@ -126,6 +133,7 @@ struct DashboardView: View {
     @State private var rangeEnd = 0
     @State private var clipBuffer = ""
     @State private var selectedPatternScale: PatternScale = .micro
+    @State private var selectedRecenteringPromptID = "gentle_tap"
     @State private var timelineWindow = 40
     @State private var replaySpeed: Double = 1.0
     @State private var replayTarget = ""
@@ -572,6 +580,52 @@ struct DashboardView: View {
                             .frame(width: 180)
                         }
                     }
+                }
+                Divider()
+                Text("Recentering Interrupts")
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                Text("Homeostasis prompts for drift, loops, and overreach")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                Picker("Prompt", selection: $selectedRecenteringPromptID) {
+                    ForEach(recenteringPrompts) { p in
+                        Text(p.label).tag(p.id)
+                    }
+                }
+                .pickerStyle(.menu)
+                if let selected = recenteringPrompts.first(where: { $0.id == selectedRecenteringPromptID }) {
+                    Text("symptom: \(selected.symptom)")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                    TextEditor(text: Binding(
+                        get: { selected.body },
+                        set: { _ in }
+                    ))
+                    .font(.system(size: 11, design: .monospaced))
+                    .frame(height: 96)
+                    .scrollContentBackground(.hidden)
+                    .background(Color.black.opacity(0.18))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+                HStack {
+                    Button("Auto-select From Live Captures") {
+                        if let inferred = inferredRecenteringPrompt() {
+                            selectedRecenteringPromptID = inferred.id
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    Button("Use As Autopilot Prompt") {
+                        if let selected = recenteringPrompts.first(where: { $0.id == selectedRecenteringPromptID }) {
+                            autopilotPrompt = selected.body
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    Button("Queue To Pane Text") {
+                        if let selected = recenteringPrompts.first(where: { $0.id == selectedRecenteringPromptID }) {
+                            paneText = selected.body
+                        }
+                    }
+                    .buttonStyle(.bordered)
                 }
             }
             GlassCard(title: "System Profile") {
@@ -1604,6 +1658,153 @@ struct DashboardView: View {
         case .act:
             return "Act pass: guarded autopilot + smoke feedback loop."
         }
+    }
+
+    private var recenteringPrompts: [RecenteringPrompt] {
+        [
+            RecenteringPrompt(
+                id: "gentle_tap",
+                label: "Gentle Tap",
+                symptom: "General drift",
+                body: """
+                Pause.
+
+                We are not designing the system.
+                We are repairing the current behavior.
+
+                State in one sentence:
+                What observable failure are we fixing?
+
+                Then:
+                Show the smallest possible change that moves the failure output.
+                No refactors. No abstractions. No new modules.
+                """
+            ),
+            RecenteringPrompt(
+                id: "ground_reality",
+                label: "Ground Reality Anchor",
+                symptom: "Ignoring smoke/tests",
+                body: """
+                Return to ground truth.
+
+                Here is the only authority: the smoke test output.
+
+                1) Quote the exact failing line
+                2) Name the immediate cause (not the architecture cause)
+                3) Change only code that executes before that line
+                """
+            ),
+            RecenteringPrompt(
+                id: "anti_hallucination",
+                label: "Anti-Hallucination Lock",
+                symptom: "Invented APIs/symbols",
+                body: """
+                Before proposing a solution:
+
+                List every symbol you will use that is NOT defined in the pasted code.
+                If the list is non-empty, stop and ask for the missing definitions.
+
+                No invented APIs.
+                No assumed libraries.
+                """
+            ),
+            RecenteringPrompt(
+                id: "over_engineering",
+                label: "Over-Engineering Interrupt",
+                symptom: "New files/abstractions explosion",
+                body: """
+                You are escalating complexity.
+
+                Reject any solution that introduces:
+                - new files
+                - new abstractions
+                - new configuration
+                - new dependencies
+
+                Find a fix that fits inside current functions.
+                """
+            ),
+            RecenteringPrompt(
+                id: "loop_escape",
+                label: "Loop Escape",
+                symptom: "Repeated failed fix attempts",
+                body: """
+                We attempted a fix and the failure did not meaningfully change.
+                Therefore the mental model is wrong.
+
+                Give three alternative hypotheses for the cause,
+                ranked by likelihood,
+                and propose the smallest test to distinguish them.
+                No code edits yet.
+                """
+            ),
+            RecenteringPrompt(
+                id: "diff_minimizer",
+                label: "Diff Minimizer",
+                symptom: "Diff too large for bug scope",
+                body: """
+                Rewrite your solution so the diff is smaller.
+
+                Goal: under 10 changed lines.
+                Prefer guards and local edits over refactors.
+                Correctness first. Taste later.
+                """
+            ),
+            RecenteringPrompt(
+                id: "framework_breaker",
+                label: "Framework Delusion Breaker",
+                symptom: "Framework migration tangent",
+                body: """
+                We are not switching frameworks.
+                We are fixing a bug in THIS program.
+
+                Explain why the bug happens using only runtime behavior,
+                not design philosophy.
+                """
+            ),
+            RecenteringPrompt(
+                id: "hard_reset",
+                label: "Hard Reset",
+                symptom: "Complete derailment",
+                body: """
+                Stop.
+
+                Forget previous plan.
+                Start from scratch using only:
+                - the failing test
+                - the code that executes before it
+
+                Summarize the program in 5 bullets.
+                Then fix only the first wrong assumption.
+                """
+            )
+        ]
+    }
+
+    private func inferredRecenteringPrompt() -> RecenteringPrompt? {
+        let captures = (client.state?.takeoverCandidates ?? []).map(\.capture).joined(separator: "\n").lowercased()
+        let logs = client.actionLog.prefix(40).joined(separator: "\n").lowercased()
+        let corpus = captures + "\n" + logs
+
+        if corpus.contains("framework") || corpus.contains("migration") {
+            return recenteringPrompts.first { $0.id == "framework_breaker" }
+        }
+        if corpus.contains("unknown command") || corpus.contains("no structured trace") || client.agitationScore > 75 {
+            return recenteringPrompts.first { $0.id == "hard_reset" }
+        }
+        if corpus.contains("proceed") || corpus.contains("retry") || corpus.contains("again") {
+            return recenteringPrompts.first { $0.id == "loop_escape" }
+        }
+        if corpus.contains("no such file") || corpus.contains("undefined") || corpus.contains("not found") {
+            return recenteringPrompts.first { $0.id == "anti_hallucination" }
+        }
+        if corpus.contains("new file") || corpus.contains("create mode") || corpus.contains("wrote") {
+            return recenteringPrompts.first { $0.id == "over_engineering" }
+        }
+        if !corpus.contains("smoke") && !corpus.contains("test") {
+            return recenteringPrompts.first { $0.id == "ground_reality" }
+        }
+        return recenteringPrompts.first { $0.id == "gentle_tap" }
     }
 
     private var profileGuidance: String {
