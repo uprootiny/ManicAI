@@ -1,26 +1,103 @@
-# ManicAI (macOS)
+# ManicAI
 
-A styled macOS operator app for agent-heavy development environments.
+ManicAI is a macOS control console for AI-session sprawl: too many panes, too many agent loops, too many half-finished interventions.
 
-## What it does
+It is built for one outcome:
+- convert noisy parallel activity into bounded, smoke-verified progress.
 
-- Connects to `hyperpanel` (`/api/state`)
-- Displays takeover candidates, pane grid, and smoke/vibe status
-- Triggers autopilot (`/api/autopilot/run`) from a terminal-style control card
-- Keeps the UI legible while many agent sessions are active
-- Supports remote endpoint presets (`173`, `149`, `hyle.hyperstitious.org`) and recon scan auto-selection
-- Sends autopilot requests with project context to avoid no-op engagement
-- Adds cadence profiles (`Stabilize`, `Throughput`, `Deep Work`) with throttled commutation controls
-- Supports scripted nudges (multi-step prompt sequence with per-step pause)
-- Enforces a cognitive hygiene layer: intent latch checksum, attention budget limits, agitation score, and healthy-cycle deltas
-- Adds per-target laneing (`Primary`/`Secondary`/`Quarantine`) and per-target cooldown/delay overrides
-- Adds global panic button: freeze all mutation actions while preserving read-only polling
-- Adds DAW-style prompt timeline tracks with scrubbing, replay navigation, and clip operations (copy/cut/paste across tracks)
-- Adds a skeuomorphic sampler palette for promptset/cadence/paramset pattern libraries (micro/meso/macro scales)
-- Persists prompt history and writes cadence analysis reports
-- Exports layered session profile snapshots (`session-profile.json` + `session-profile.md`)
+## The Common Failure
 
-## Run locally (macOS)
+You open a project and see:
+- 20+ tmux sessions
+- several AI chats in different states
+- mixed local/remote endpoints
+- repeated prompts, stalled approval gates, unclear ownership
+
+Without a control plane, this becomes:
+- vibes instead of verification
+- interventions without feedback loops
+- big diffs and low confidence
+
+## What ManicAI Does
+
+ManicAI treats this as an operations problem, not a chat problem.
+
+It gives you:
+- live surface recon across known hosts
+- state-aware takeover candidates and pane captures
+- mode-gated actions (`Verify`, `Plan`, `Act`)
+- bounded loops: classify -> intervene -> smoke -> delta
+- timeline replay of prompt/service/git/file events
+- recentering prompts for runaway agent behavior
+
+## Concept -> Execution -> Concept -> Execution
+
+### 1) Concept: Observe reality first
+### 1) Execution:
+- probe real hosts/ports (`8788`, `8421`, `9801`, `9750`)
+- classify state schema (`hyperpanel` vs `coggy`)
+- expose tmux dashboard reachability directly in UI
+
+### 2) Concept: Bound interventions
+### 2) Execution:
+- explicit `Verify/Plan/Act` behavior
+- preflight blocker reasons before actions fire
+- panic/degraded controls stay visible and enforceable
+
+### 3) Concept: Keep attention on the bug, not the fantasy
+### 3) Execution:
+- built-in recentering interrupt library
+- auto-suggest prompt based on live capture symptoms
+- enforce micro-loop discipline through operator flow
+
+### 4) Concept: Prove progress
+### 4) Execution:
+- smoke-first control plane routes
+- artifact/event timeline
+- CI matrix builds with downloadable app artifacts
+
+## A Typical Operator Flow
+
+1. Run `Recon Scan + Auto Select`.
+2. Confirm live surface (`state kind`, `tmux`, latency).
+3. Pick mode:
+   - `Verify` for diagnosis
+   - `Plan` for bounded proposals
+   - `Act` for guarded execution
+4. Run one bounded cycle.
+5. Inspect smoke delta and timeline artifacts.
+6. Commit the smallest verified fix.
+
+## The “Wow” Moment
+
+The wow is not animation.
+
+It is this:
+- you walk into chaos
+- within minutes, you know which surface is real, which loop is blocked, and which intervention is safe
+- after one bounded cycle, the smoke output changes for the better
+
+That is the product.
+
+## Screenshots
+
+Add release screenshots here and keep names stable:
+
+- `docs/screenshots/01-recon.png` (live surface recon)
+- `docs/screenshots/02-candidates.png` (takeover candidates + liveness)
+- `docs/screenshots/03-modes.png` (`Verify/Plan/Act` + gating)
+- `docs/screenshots/04-timeline.png` (DAW-like timeline)
+- `docs/screenshots/05-recentering.png` (recentering prompt palette)
+
+Then reference them:
+
+![Surface Recon](docs/screenshots/01-recon.png)
+![Takeover Candidates](docs/screenshots/02-candidates.png)
+![Modes and Gating](docs/screenshots/03-modes.png)
+![Timeline](docs/screenshots/04-timeline.png)
+![Recentering Prompts](docs/screenshots/05-recentering.png)
+
+## Install (macOS)
 
 ```bash
 cd /path/to/ManicAI
@@ -29,75 +106,24 @@ xcodegen generate
 open ManicAI.xcodeproj
 ```
 
-## CI/CD
+## Build Artifacts
 
-Workflow: `.github/workflows/build-macos.yml`
+Workflow:
+- `.github/workflows/build-macos.yml`
+
+Targets:
+- `tahoe-compat` (`MACOSX_DEPLOYMENT_TARGET=15.0`)
+- `intel-baseline` (`MACOSX_DEPLOYMENT_TARGET=13.0`)
+- `legacy-10-11` (`ManicAILegacy`)
 
 Download portal:
+- `docs/download/index.html`
+- intended domain: `manicai.hypersticial.art`
 
-- `docs/download/index.html` (deploy this at `manicai.hypersticial.art`)
-- Always resolves latest healthy GitHub Actions artifacts for macOS targets.
+## Docs
 
-Derived from the existing macOS build pipeline patterns in `uprootiny/Flycut`, adapted for:
-
-- dual target matrix:
-  - `tahoe-compat` on `macos-15` with `MACOSX_DEPLOYMENT_TARGET=15.0`
-  - `intel-baseline` on `macos-15-intel` with `MACOSX_DEPLOYMENT_TARGET=13.0`
-  - `legacy-10-11` on `macos-15-intel` with `MACOSX_DEPLOYMENT_TARGET=10.11` (AppKit target: `ManicAILegacy`)
-- SwiftUI app build + unit tests
-- AppKit fallback shell for El Capitan compatibility
-- unsigned build on GitHub macOS runners
-- DMG/ZIP artifact packaging
-  - ZIP via `ditto --sequesterRsrc --keepParent` to preserve app bundle metadata
-
-### Gatekeeper-safe artifacts (sign + notarize)
-
-The workflow can now produce notarized artifacts when these repo secrets are configured:
-
-- `APPLE_DEVELOPER_ID_APP_CERT_BASE64` (base64 `.p12` for Developer ID Application cert)
-- `APPLE_DEVELOPER_ID_APP_CERT_PASSWORD`
-- `APPLE_KEYCHAIN_PASSWORD` (optional; fallback temp value used if omitted)
-- `APPLE_NOTARY_KEY_ID`
-- `APPLE_NOTARY_ISSUER_ID`
-- `APPLE_NOTARY_API_KEY_BASE64` (base64 App Store Connect API key `.p8`)
-
-When secrets are present, CI uploads additional artifacts suffixed with `-notarized`.
-If secrets are missing, CI still uploads unsigned artifacts (which trigger the macOS "cannot verify malware" warning).
-
-## OnyX-inspired operating model
-
-- `Verify`: inspect only, no interventions
-- `Plan`: classify blockers and propose safe next actions
-- `Act`: guarded autopilot + smoke loop
-
-The app surfaces this as a mode switch in the control pane so operators can stage actions safely.
-
-## Design reference
-
-- Canonical design doc: `docs/DESIGN_DOC.md`
-
-## Suggested first milestone
-
-- Add ownership/blocker badges per candidate (`owner`, `blocker`, `authority`)
-- Add explicit interventions in app UI:
-  - approve safe command
-  - freeze session
-  - promote primary session
-
-## Operational cadence automation
-
-Scripts in `scripts/cadence/`:
-
-- `feed_health_check.sh` (15-min rhythm)
-- `daily_snapshot.sh` (daily state archive)
-- `weekly_benchmark_drift.py` (weekly drift report from snapshots)
-- `install_cron.sh` (installs all three rhythms into user crontab)
-- `wrangle_logs.sh` (retention + size cap for log folders)
-
-Example:
-
-```bash
-cd /path/to/ManicAI
-./scripts/cadence/install_cron.sh http://173.212.203.211:8788
-KEEP_DAYS=14 MAX_MB=256 ./scripts/cadence/wrangle_logs.sh
-```
+- Design: `docs/DESIGN_DOC.md`
+- Critique: `docs/UX_ENGINEERING_CRITIQUE.md`
+- Surface reality: `docs/SURFACE_REALITY.md`
+- Recentering prompts: `docs/RECENTERING_PROMPTS.md`
+- Release page: `docs/release/GITHUB_RELEASE_PAGE.md`
