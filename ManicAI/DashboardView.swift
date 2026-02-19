@@ -226,6 +226,11 @@ struct DashboardView: View {
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(.orange)
             }
+            if client.highPressureMode {
+                Text("PRESSURE")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.yellow)
+            }
             Button("Refresh") {
                 Task { await client.refresh() }
             }
@@ -671,6 +676,11 @@ struct DashboardView: View {
                 Text("est memory: \(String(format: "%.2f", p.estimatedMemoryMB)) MB")
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(.secondary)
+                if p.highPressureMode {
+                    Text("high-pressure: \(p.highPressureReason)")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.yellow)
+                }
             }
             GlassCard(title: "Panic + Lanes") {
                 if client.panicMode {
@@ -1027,6 +1037,7 @@ struct DashboardView: View {
                             toggleReplay(events: events)
                         }
                         .buttonStyle(.borderedProminent)
+                        .disabled(client.highPressureMode && replayTask == nil)
                         Button("Step") {
                             replayOneStep(events: events)
                         }

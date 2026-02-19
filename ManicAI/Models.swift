@@ -313,4 +313,6 @@ struct PerformanceSnapshot {
     var estimatedMemoryMB: Double = 0
     var persistQueued: Bool = false
     var recomputeQueued: Bool = false
+    var highPressureMode: Bool = false
+    var highPressureReason: String = ""
 }

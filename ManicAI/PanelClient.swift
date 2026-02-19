@@ -51,6 +51,8 @@ final class PanelClient: ObservableObject {
     @Published var layerEdges: [LayerEdgeMetric] = []
     @Published var eventBudgetSummary: String = ""
     @Published var performance = PerformanceSnapshot()
+    @Published var highPressureMode: Bool = false
+    @Published var highPressureReason: String = ""
     private var lastAutopilotAt: Date?
     private var lastAutopilotAtByTarget: [String: Date] = [:]
     private var refreshQueued: Bool = false
@@ -751,6 +753,8 @@ final class PanelClient: ObservableObject {
         layerEdges = []
         eventBudgetSummary = ""
         performance = PerformanceSnapshot()
+        highPressureMode = false
+        highPressureReason = ""
         refreshSamplesMs = []
         droppedStateServiceEvents = 0
         UserDefaults.standard.removeObject(forKey: Self.routeStatsKey)
@@ -774,7 +778,8 @@ final class PanelClient: ObservableObject {
     }
 
     func effectiveRefreshCadence(baseSeconds: Double) -> Double {
-        max(2, baseSeconds * cadenceBackoffFactor)
+        let pressureFactor = highPressureMode ? 1.8 : 1.0
+        return max(2, baseSeconds * cadenceBackoffFactor * pressureFactor)
     }
 
     func exportPromptHistoryAndCadenceReport() {
@@ -1301,6 +1306,7 @@ final class PanelClient: ObservableObject {
         let eventBytes = Double(promptHistory.count) * 900.0
         let logBytes = Double(actionLog.count + schedulerNotes.count) * 220.0
         performance.estimatedMemoryMB = (eventBytes + logBytes) / (1024 * 1024)
+        recomputeHighPressureMode()
     }
 
     private func shouldRecordStateServiceEvent() -> Bool {
@@ -1317,6 +1323,20 @@ final class PanelClient: ObservableObject {
         let avg = refreshSamplesMs.reduce(0, +) / Double(max(1, refreshSamplesMs.count))
         performance.avgRefreshMs = avg
         performance.maxRefreshMs = max(performance.maxRefreshMs, ms)
+        recomputeHighPressureMode()
+    }
+
+    private func recomputeHighPressureMode() {
+        var reasons: [String] = []
+        if promptHistory.count > Int(Double(maxPromptHistoryEntries) * 0.85) { reasons.append("event-buffer") }
+        if performance.avgRefreshMs > 1200 { reasons.append("slow-refresh") }
+        if performance.persistQueued && performance.recomputeQueued { reasons.append("queue-pressure") }
+        if performance.estimatedMemoryMB > 8.0 { reasons.append("memory-estimate") }
+
+        highPressureMode = !reasons.isEmpty
+        highPressureReason = reasons.joined(separator: ",")
+        performance.highPressureMode = highPressureMode
+        performance.highPressureReason = highPressureReason
     }
 
     private func currentSessionProfileSnapshot() -> SessionProfileSnapshot {
