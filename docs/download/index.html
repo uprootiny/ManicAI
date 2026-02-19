@@ -117,7 +117,7 @@
     const OWNER = "uprootiny";
     const REPO = "ManicAI";
     const WORKFLOW = "build-macos.yml";
-    const BRANCH = "master";
+    const BRANCHES = ["master", "main"];
 
     const statusEl = document.getElementById("status");
     const listEl = document.getElementById("artifacts");
@@ -154,14 +154,22 @@
       return r.json();
     }
 
+    async function findLatestSuccessfulRun() {
+      for (const branch of BRANCHES) {
+        const runsUrl = `https://api.github.com/repos/${OWNER}/${REPO}/actions/workflows/${WORKFLOW}/runs?branch=${encodeURIComponent(branch)}&status=success&per_page=10`;
+        const runsDoc = await fetchJSON(runsUrl);
+        const run = (runsDoc.workflow_runs || []).find(r => r.conclusion === "success");
+        if (run) return run;
+      }
+      return null;
+    }
+
     async function loadLatest() {
       listEl.innerHTML = "";
       statusEl.textContent = "Loading latest successful build…";
       statusEl.className = "status";
 
-      const runsUrl = `https://api.github.com/repos/${OWNER}/${REPO}/actions/workflows/${WORKFLOW}/runs?branch=${encodeURIComponent(BRANCH)}&status=success&per_page=10`;
-      const runsDoc = await fetchJSON(runsUrl);
-      const run = (runsDoc.workflow_runs || []).find(r => r.conclusion === "success");
+      const run = await findLatestSuccessfulRun();
       if (!run) throw new Error("No successful build run found.");
 
       const artifactsUrl = `https://api.github.com/repos/${OWNER}/${REPO}/actions/runs/${run.id}/artifacts?per_page=100`;
