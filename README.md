@@ -72,6 +72,10 @@ If secrets are missing, CI still uploads unsigned artifacts (which trigger the m
 
 The app surfaces this as a mode switch in the control pane so operators can stage actions safely.
 
+## Design reference
+
+- Canonical design doc: `docs/DESIGN_DOC.md`
+
 ## Suggested first milestone
 
 - Add ownership/blocker badges per candidate (`owner`, `blocker`, `authority`)
