@@ -1,0 +1,534 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		03F752AFDD67FFBBC7B2A628 /* TelemetryMemory.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6D374F9A4797041C558FB41 /* TelemetryMemory.swift */; };
+		215A66C783B7C4050284DB14 /* PanelClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4718E838A82DE105F4DA4476 /* PanelClient.swift */; };
+		29E3F5B6E485BBBC21A6B3DA /* TimelineEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0DD9A83FD9B42F97C681AB5 /* TimelineEngine.swift */; };
+		2CBECECD1D2EDFA785F80703 /* ControlSpecs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F99039E80F82273765EA7B5 /* ControlSpecs.swift */; };
+		32FBD88EF8420DE96E4BFFBB /* PanelStateDecodingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4896A44A36BB19FFC19CE7BC /* PanelStateDecodingTests.swift */; };
+		59040CCED96BFD3C71317FF3 /* TimelineEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF1965897FD9AF552264DD24 /* TimelineEngineTests.swift */; };
+		64ADBA8E87892BBBE562894F /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D23E88E9AD679906A762F6E /* Models.swift */; };
+		686ADA0D592CBE08C89DB562 /* DashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFA6A23AB101B1A0C2507F7F /* DashboardView.swift */; };
+		70BF74EB519B59E9D30A8A68 /* ManicAIApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10A486622A9281B6C828BBB7 /* ManicAIApp.swift */; };
+		8346C5150E48F77561C8F86F /* ControlSpecsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2256A5D9C60A41C2C25F66C5 /* ControlSpecsTests.swift */; };
+		AD4D44151D359DB824E0168E /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF89A5151D7970314285E620 /* main.swift */; };
+		BF213E69BB8393F6144E9D14 /* DemoCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 713E582F0D2D8235EB345989 /* DemoCatalog.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		4193B36087703738B0641A46 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 655741895BE447C849DE32E7 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A8638EAB7ED4ACEBCCE213B3;
+			remoteInfo = ManicAI;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		10A486622A9281B6C828BBB7 /* ManicAIApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManicAIApp.swift; sourceTree = "<group>"; };
+		1F99039E80F82273765EA7B5 /* ControlSpecs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlSpecs.swift; sourceTree = "<group>"; };
+		2256A5D9C60A41C2C25F66C5 /* ControlSpecsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlSpecsTests.swift; sourceTree = "<group>"; };
+		4718E838A82DE105F4DA4476 /* PanelClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelClient.swift; sourceTree = "<group>"; };
+		4896A44A36BB19FFC19CE7BC /* PanelStateDecodingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelStateDecodingTests.swift; sourceTree = "<group>"; };
+		4BB078D2040CDC9ECE900879 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		713E582F0D2D8235EB345989 /* DemoCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoCatalog.swift; sourceTree = "<group>"; };
+		88CB78D9D9E23C4B828B49AC /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		9D23E88E9AD679906A762F6E /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		A0DD9A83FD9B42F97C681AB5 /* TimelineEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineEngine.swift; sourceTree = "<group>"; };
+		BF1965897FD9AF552264DD24 /* TimelineEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineEngineTests.swift; sourceTree = "<group>"; };
+		C90FC3AB5B94FCFBFE04A340 /* ManicAITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ManicAITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		CF89A5151D7970314285E620 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
+		CFA6A23AB101B1A0C2507F7F /* DashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardView.swift; sourceTree = "<group>"; };
+		CFBA3F68CA4FBB33E267CAE1 /* ManicAI.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ManicAI.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		E37A6A1A13519A009D28A7CE /* ManicAILegacy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ManicAILegacy.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		F6D374F9A4797041C558FB41 /* TelemetryMemory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TelemetryMemory.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		392C82BAFA251FF38D3866A1 /* ManicAITests */ = {
+			isa = PBXGroup;
+			children = (
+				2256A5D9C60A41C2C25F66C5 /* ControlSpecsTests.swift */,
+				4896A44A36BB19FFC19CE7BC /* PanelStateDecodingTests.swift */,
+				BF1965897FD9AF552264DD24 /* TimelineEngineTests.swift */,
+			);
+			path = ManicAITests;
+			sourceTree = "<group>";
+		};
+		48D8E661441BBDF0B4B3DFE3 = {
+			isa = PBXGroup;
+			children = (
+				EEA8280D47F270678F6151F6 /* ManicAI */,
+				611FD0D1C33E4873C50A9A29 /* ManicAILegacy */,
+				392C82BAFA251FF38D3866A1 /* ManicAITests */,
+				B94C0752CC0C91AC9569BBDE /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		611FD0D1C33E4873C50A9A29 /* ManicAILegacy */ = {
+			isa = PBXGroup;
+			children = (
+				88CB78D9D9E23C4B828B49AC /* Info.plist */,
+				CF89A5151D7970314285E620 /* main.swift */,
+			);
+			path = ManicAILegacy;
+			sourceTree = "<group>";
+		};
+		B94C0752CC0C91AC9569BBDE /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				CFBA3F68CA4FBB33E267CAE1 /* ManicAI.app */,
+				E37A6A1A13519A009D28A7CE /* ManicAILegacy.app */,
+				C90FC3AB5B94FCFBFE04A340 /* ManicAITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		EEA8280D47F270678F6151F6 /* ManicAI */ = {
+			isa = PBXGroup;
+			children = (
+				1F99039E80F82273765EA7B5 /* ControlSpecs.swift */,
+				CFA6A23AB101B1A0C2507F7F /* DashboardView.swift */,
+				713E582F0D2D8235EB345989 /* DemoCatalog.swift */,
+				4BB078D2040CDC9ECE900879 /* Info.plist */,
+				10A486622A9281B6C828BBB7 /* ManicAIApp.swift */,
+				9D23E88E9AD679906A762F6E /* Models.swift */,
+				4718E838A82DE105F4DA4476 /* PanelClient.swift */,
+				F6D374F9A4797041C558FB41 /* TelemetryMemory.swift */,
+				A0DD9A83FD9B42F97C681AB5 /* TimelineEngine.swift */,
+			);
+			path = ManicAI;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		17E5CD975DFF823C75213D5B /* ManicAILegacy */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A05778EE2578596183B7C22D /* Build configuration list for PBXNativeTarget "ManicAILegacy" */;
+			buildPhases = (
+				DE1C241B0B29495B19CC8E2B /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ManicAILegacy;
+			packageProductDependencies = (
+			);
+			productName = ManicAILegacy;
+			productReference = E37A6A1A13519A009D28A7CE /* ManicAILegacy.app */;
+			productType = "com.apple.product-type.application";
+		};
+		A8638EAB7ED4ACEBCCE213B3 /* ManicAI */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A2467C12FBD5F90AA03E853D /* Build configuration list for PBXNativeTarget "ManicAI" */;
+			buildPhases = (
+				E4C80741B7576D14DEBE6247 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ManicAI;
+			packageProductDependencies = (
+			);
+			productName = ManicAI;
+			productReference = CFBA3F68CA4FBB33E267CAE1 /* ManicAI.app */;
+			productType = "com.apple.product-type.application";
+		};
+		CC50465B97AA36208B422CD2 /* ManicAITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 4001244B2ECF54A0B8726F83 /* Build configuration list for PBXNativeTarget "ManicAITests" */;
+			buildPhases = (
+				6C363A50C8A8794F254C5102 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				3B993DD466E11484FDAD70EC /* PBXTargetDependency */,
+			);
+			name = ManicAITests;
+			packageProductDependencies = (
+			);
+			productName = ManicAITests;
+			productReference = C90FC3AB5B94FCFBFE04A340 /* ManicAITests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		655741895BE447C849DE32E7 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					17E5CD975DFF823C75213D5B = {
+						ProvisioningStyle = Automatic;
+					};
+					A8638EAB7ED4ACEBCCE213B3 = {
+						ProvisioningStyle = Automatic;
+					};
+					CC50465B97AA36208B422CD2 = {
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 21C1948C6502E29B9CE4A694 /* Build configuration list for PBXProject "ManicAI" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 48D8E661441BBDF0B4B3DFE3;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A8638EAB7ED4ACEBCCE213B3 /* ManicAI */,
+				17E5CD975DFF823C75213D5B /* ManicAILegacy */,
+				CC50465B97AA36208B422CD2 /* ManicAITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		6C363A50C8A8794F254C5102 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8346C5150E48F77561C8F86F /* ControlSpecsTests.swift in Sources */,
+				32FBD88EF8420DE96E4BFFBB /* PanelStateDecodingTests.swift in Sources */,
+				59040CCED96BFD3C71317FF3 /* TimelineEngineTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DE1C241B0B29495B19CC8E2B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AD4D44151D359DB824E0168E /* main.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E4C80741B7576D14DEBE6247 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2CBECECD1D2EDFA785F80703 /* ControlSpecs.swift in Sources */,
+				686ADA0D592CBE08C89DB562 /* DashboardView.swift in Sources */,
+				BF213E69BB8393F6144E9D14 /* DemoCatalog.swift in Sources */,
+				70BF74EB519B59E9D30A8A68 /* ManicAIApp.swift in Sources */,
+				64ADBA8E87892BBBE562894F /* Models.swift in Sources */,
+				215A66C783B7C4050284DB14 /* PanelClient.swift in Sources */,
+				03F752AFDD67FFBBC7B2A628 /* TelemetryMemory.swift in Sources */,
+				29E3F5B6E485BBBC21A6B3DA /* TimelineEngine.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		3B993DD466E11484FDAD70EC /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A8638EAB7ED4ACEBCCE213B3 /* ManicAI */;
+			targetProxy = 4193B36087703738B0641A46 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		436905E27CE2E9BE7284BD27 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGNING_REQUIRED = NO;
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = ManicAILegacy/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 10.11;
+				PRODUCT_BUNDLE_IDENTIFIER = org.uprootiny.manicai.legacy;
+				PRODUCT_NAME = ManicAILegacy;
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.9;
+			};
+			name = Release;
+		};
+		8762DF2ACA50A45AF1AE319F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.uprootiny.ManicAITests;
+				PRODUCT_NAME = ManicAITests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ManicAI.app/Contents/MacOS/ManicAI";
+			};
+			name = Release;
+		};
+		A4F6E2B40A4B0FE052C54429 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGNING_REQUIRED = NO;
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = ManicAI/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.uprootiny.manicai;
+				PRODUCT_NAME = ManicAI;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		AA56DACC1478C59882919383 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.9;
+			};
+			name = Debug;
+		};
+		B0D8861ACE1EBF7D3A5BF962 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.uprootiny.ManicAITests;
+				PRODUCT_NAME = ManicAITests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ManicAI.app/Contents/MacOS/ManicAI";
+			};
+			name = Debug;
+		};
+		D717FC1D1FE018299612E1D0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGNING_REQUIRED = NO;
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = ManicAILegacy/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 10.11;
+				PRODUCT_BUNDLE_IDENTIFIER = org.uprootiny.manicai.legacy;
+				PRODUCT_NAME = ManicAILegacy;
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.9;
+			};
+			name = Debug;
+		};
+		E269280F3D970972B8D3C305 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGNING_REQUIRED = NO;
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = ManicAI/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.uprootiny.manicai;
+				PRODUCT_NAME = ManicAI;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		F73A00DA67B9F2CE619F21A5 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.9;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		21C1948C6502E29B9CE4A694 /* Build configuration list for PBXProject "ManicAI" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AA56DACC1478C59882919383 /* Debug */,
+				F73A00DA67B9F2CE619F21A5 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		4001244B2ECF54A0B8726F83 /* Build configuration list for PBXNativeTarget "ManicAITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B0D8861ACE1EBF7D3A5BF962 /* Debug */,
+				8762DF2ACA50A45AF1AE319F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		A05778EE2578596183B7C22D /* Build configuration list for PBXNativeTarget "ManicAILegacy" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D717FC1D1FE018299612E1D0 /* Debug */,
+				436905E27CE2E9BE7284BD27 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		A2467C12FBD5F90AA03E853D /* Build configuration list for PBXNativeTarget "ManicAI" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A4F6E2B40A4B0FE052C54429 /* Debug */,
+				E269280F3D970972B8D3C305 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 655741895BE447C849DE32E7 /* Project object */;
+}
